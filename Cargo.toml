@@ -15,3 +15,11 @@ sysinfo = "0.39.5"
 thiserror = "2.0.18"
 toml = "1.1.2"
 uuid = { version = "1.23.4", features = ["v4"] }
+
+# Size-optimized release build (goal: small binary). Unwinding is kept (no
+# panic="abort") so RunningProcess::Drop still kills child processes on a panic.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
