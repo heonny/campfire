@@ -200,7 +200,18 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
             ui.end_row();
 
             ui.label("Working dir");
-            ui.text_edit_singleline(&mut form.cwd);
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut form.cwd).desired_width(260.0));
+                if ui.button("Browse…").clicked() {
+                    let mut dialog = rfd::FileDialog::new();
+                    if !form.cwd.trim().is_empty() {
+                        dialog = dialog.set_directory(form.cwd.trim());
+                    }
+                    if let Some(path) = dialog.pick_folder() {
+                        form.cwd = path.to_string_lossy().into_owned();
+                    }
+                }
+            });
             ui.end_row();
 
             ui.label("Command");
@@ -212,7 +223,18 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
             ui.end_row();
 
             ui.label(".env file");
-            ui.text_edit_singleline(&mut form.env_file);
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut form.env_file).desired_width(260.0));
+                if ui.button("Browse…").clicked() {
+                    let mut dialog = rfd::FileDialog::new();
+                    if !form.cwd.trim().is_empty() {
+                        dialog = dialog.set_directory(form.cwd.trim());
+                    }
+                    if let Some(path) = dialog.pick_file() {
+                        form.env_file = path.to_string_lossy().into_owned();
+                    }
+                }
+            });
             ui.end_row();
 
             ui.label("Shell");
