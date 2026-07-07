@@ -63,6 +63,8 @@ struct CampfireApp {
     metrics: metrics::Metrics,
     /// Whether the help modal is open.
     show_help: bool,
+    /// Lazily-loaded top-bar logo texture.
+    logo: Option<egui::TextureHandle>,
 }
 
 impl CampfireApp {
@@ -84,6 +86,7 @@ impl CampfireApp {
             restart_pending: HashSet::new(),
             metrics: metrics::Metrics::new(),
             show_help: false,
+            logo: None,
         }
     }
 
@@ -182,6 +185,18 @@ impl CampfireApp {
 
 impl eframe::App for CampfireApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.logo.is_none()
+            && let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!(
+                "../assets/images/logo-mark-64.png"
+            ))
+        {
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [icon.width as usize, icon.height as usize],
+                &icon.rgba,
+            );
+            self.logo = Some(ui.ctx().load_texture("logo", image, egui::TextureOptions::LINEAR));
+        }
+
         // Drive live processes: drain logs, detect exit, escalate shutdown.
         for proc in self.running.values_mut() {
             proc.poll();
@@ -212,6 +227,9 @@ impl eframe::App for CampfireApp {
 
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
+                if let Some(logo) = &self.logo {
+                    ui.add(egui::Image::from_texture(logo).max_height(22.0));
+                }
                 ui.heading("Campfire");
                 ui.separator();
                 let active = self.running.values().filter(|p| !p.is_terminal()).count();

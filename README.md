@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/images/logo-hoz.png" width="440" alt="Campfire">
+  <img src="assets/images/logo-full.png" width="300" alt="Campfire">
 </p>
 
 <p align="center">
