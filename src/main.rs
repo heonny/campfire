@@ -4,6 +4,7 @@
 //! panels use the unified `egui::Panel` type shown into a `&mut Ui`.
 
 mod model;
+mod port;
 mod process;
 mod store;
 
@@ -43,6 +44,8 @@ struct CampfireApp {
     selected: Option<usize>,
     /// Live processes, keyed by `ServerConfig::id`.
     running: HashMap<String, RunningProcess>,
+    /// Transient one-line notice (e.g. a port conflict that blocked a start).
+    notice: Option<String>,
 }
 
 impl CampfireApp {
@@ -54,20 +57,30 @@ impl CampfireApp {
                 Vec::new()
             }
         };
-        Self { servers, selected: None, running: HashMap::new() }
+        Self { servers, selected: None, running: HashMap::new(), notice: None }
     }
 
-    /// Spawn the server with `id`, wiring reader-thread wakeups to `ctx`.
+    /// Spawn the server with `id`, refusing if its port is already taken.
     fn start_server(&mut self, id: &str, ctx: egui::Context) {
         let Some(server) = self.servers.iter().find(|s| s.id == id).cloned() else {
             return;
         };
+        if let Some(port) = server.port
+            && !port::is_port_free(port)
+        {
+            self.notice =
+                Some(format!("Can't start '{}': port {port} is already in use.", server.name));
+            return;
+        }
         let wake = move || ctx.request_repaint();
         match RunningProcess::spawn(&server, wake) {
             Ok(proc) => {
+                self.notice = None;
                 self.running.insert(server.id, proc);
             }
-            Err(err) => eprintln!("campfire: failed to start '{}': {err}", server.name),
+            Err(err) => {
+                self.notice = Some(format!("Failed to start '{}': {err}", server.name));
+            }
         }
     }
 }
@@ -82,6 +95,7 @@ impl eframe::App for CampfireApp {
             ui.ctx().request_repaint_after(Duration::from_millis(200));
         }
 
+        let dup_ports = port::duplicate_config_ports(&self.servers);
         let mut action: Option<Action> = None;
 
         egui::Panel::top("top_bar").show(ui, |ui| {
@@ -90,6 +104,11 @@ impl eframe::App for CampfireApp {
                 ui.separator();
                 let active = self.running.values().filter(|p| !p.is_terminal()).count();
                 ui.label(format!("running {active}/{}", self.servers.len()));
+                if let Some(notice) = &self.notice {
+                    ui.separator();
+                    let warn = ui.visuals().warn_fg_color;
+                    ui.colored_label(warn, notice);
+                }
             });
         });
 
@@ -103,12 +122,17 @@ impl eframe::App for CampfireApp {
                 } else {
                     let mut clicked = None;
                     for (index, server) in self.servers.iter().enumerate() {
-                        let tag = match self.running.get(&server.id).map(|p| p.status()) {
+                        let state_tag = match self.running.get(&server.id).map(|p| p.status()) {
                             Some(Status::Running | Status::Starting) => "  · running",
                             Some(Status::Crashed { .. }) => "  · crashed",
                             _ => "",
                         };
-                        let label = format!("{}{}{tag}", server.name, port_suffix(server));
+                        let dup_tag = match server.port {
+                            Some(p) if dup_ports.contains(&p) => "  [dup port]",
+                            _ => "",
+                        };
+                        let label =
+                            format!("{}{}{state_tag}{dup_tag}", server.name, port_suffix(server));
                         if ui.selectable_label(self.selected == Some(index), label).clicked() {
                             clicked = Some(index);
                         }
@@ -141,6 +165,20 @@ impl eframe::App for CampfireApp {
                     action = Some(Action::Start(server.id.clone()));
                 }
             });
+
+            // Port-conflict warnings (requirement: surface port clashes).
+            if let Some(assigned) = server.port {
+                let warn = ui.visuals().warn_fg_color;
+                if dup_ports.contains(&assigned) {
+                    ui.colored_label(
+                        warn,
+                        format!("port {assigned} is also assigned to another server in config"),
+                    );
+                } else if !active && !port::is_port_free(assigned) {
+                    ui.colored_label(warn, format!("port {assigned} is already in use"));
+                }
+            }
+
             ui.monospace(&server.command);
             ui.separator();
 
