@@ -2,4 +2,5 @@
 //! small and focused.
 
 pub mod editor;
+pub mod help;
 pub mod log_view;

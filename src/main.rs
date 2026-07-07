@@ -67,6 +67,8 @@ struct CampfireApp {
     restart_pending: HashSet<String>,
     /// Cached per-server CPU/memory usage.
     metrics: metrics::Metrics,
+    /// Whether the help modal is open.
+    show_help: bool,
 }
 
 impl CampfireApp {
@@ -87,6 +89,7 @@ impl CampfireApp {
             notice: None,
             restart_pending: HashSet::new(),
             metrics: metrics::Metrics::new(),
+            show_help: false,
         }
     }
 
@@ -210,6 +213,7 @@ impl eframe::App for CampfireApp {
 
         let dup_ports = port::duplicate_config_ports(&self.servers);
         let mut action: Option<Action> = None;
+        let mut help_click = false;
 
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -217,6 +221,9 @@ impl eframe::App for CampfireApp {
                 ui.separator();
                 let active = self.running.values().filter(|p| !p.is_terminal()).count();
                 ui.label(format!("running {active}/{}", self.servers.len()));
+                if ui.button("Help").clicked() {
+                    help_click = true;
+                }
                 if let Some(notice) = &self.notice {
                     ui.separator();
                     let warn = ui.visuals().warn_fg_color;
@@ -356,6 +363,16 @@ impl eframe::App for CampfireApp {
                 }
             }
             self.apply_editor_outcome(outcome);
+        }
+
+        if help_click {
+            self.show_help = true;
+        }
+        if self.show_help {
+            let response = egui::Modal::new(egui::Id::new("help")).show(ui.ctx(), ui::help::show);
+            if response.should_close() || response.inner {
+                self.show_help = false;
+            }
         }
     }
 }
