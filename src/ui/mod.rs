@@ -62,11 +62,3 @@ pub fn status_text(status: &Status) -> String {
         Status::Crashed { code: None } => "crashed".to_string(),
     }
 }
-
-/// `"   :8080"` when a port is set, else empty.
-pub fn port_suffix(server: &ServerConfig) -> String {
-    match server.port {
-        Some(port) => format!("   :{port}"),
-        None => String::new(),
-    }
-}

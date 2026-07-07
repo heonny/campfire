@@ -5,8 +5,24 @@ use eframe::egui;
 use egui::{vec2, Color32, CornerRadius, Margin, Stroke, Visuals};
 
 /// Campfire accent — a warm ember orange — and its pale selection tint.
-const ACCENT: Color32 = Color32::from_rgb(0xC2, 0x41, 0x0C);
-const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFB, 0xE3, 0xCC);
+pub const ACCENT: Color32 = Color32::from_rgb(0xC2, 0x41, 0x0C);
+pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFB, 0xE3, 0xCC);
+
+/// Card surface palette (shadcn-like): a white surface on the slightly greyer
+/// panel, delineated by a hairline border, with a subtle grey hover.
+pub const CARD_FILL: Color32 = Color32::WHITE;
+pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE4, 0xE2, 0xDC);
+pub const CARD_HOVER_FILL: Color32 = Color32::from_rgb(0xF1, 0xF0, 0xEC);
+
+/// A base card frame: white surface, hairline border, rounded, padded. Callers
+/// may override `.fill`/`.stroke` (e.g. for the selected/hover states).
+pub fn card_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(CARD_FILL)
+        .stroke(Stroke::new(1.0, CARD_BORDER))
+        .corner_radius(CornerRadius::same(8))
+        .inner_margin(Margin::symmetric(12, 10))
+}
 
 /// Install fonts and visuals. Call once from the eframe creation closure.
 pub fn setup(ctx: &egui::Context) {
@@ -48,7 +64,8 @@ fn install_visuals(ctx: &egui::Context) {
 fn build_visuals() -> Visuals {
     let mut visuals = Visuals::light();
 
-    visuals.panel_fill = Color32::from_rgb(0xFB, 0xFB, 0xFA);
+    // Slightly greyer than the cards so white card surfaces lift off the panel.
+    visuals.panel_fill = Color32::from_rgb(0xF5, 0xF4, 0xF1);
     visuals.window_fill = Color32::WHITE;
     visuals.faint_bg_color = Color32::from_rgb(0xF2, 0xF1, 0xEE);
     visuals.extreme_bg_color = Color32::WHITE;
