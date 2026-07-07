@@ -205,18 +205,25 @@ impl eframe::App for CampfireApp {
                     let mut clicked: Option<String> = None;
                     for server in &self.servers {
                         let is_selected = self.selected.as_deref() == Some(server.id.as_str());
-                        let state_tag = match self.running.get(&server.id).map(|p| p.status()) {
-                            Some(Status::Running | Status::Starting) => "  · running",
-                            Some(Status::Crashed { .. }) => "  · crashed",
-                            _ => "",
-                        };
-                        let dup_tag = match server.port {
-                            Some(p) if dup_ports.contains(&p) => "  [dup port]",
-                            _ => "",
-                        };
-                        let label =
-                            format!("{}{}{state_tag}{dup_tag}", server.name, port_suffix(server));
-                        if ui.selectable_label(is_selected, label).clicked() {
+                        let status = self
+                            .running
+                            .get(&server.id)
+                            .map(|p| p.status().clone())
+                            .unwrap_or(Status::Stopped);
+                        let dup = server.port.is_some_and(|p| dup_ports.contains(&p));
+                        let response = ui
+                            .horizontal(|ui| {
+                                status_dot(ui, &status);
+                                let label = format!("{}{}", server.name, port_suffix(server));
+                                let response = ui.selectable_label(is_selected, label);
+                                if dup {
+                                    let warn = ui.visuals().warn_fg_color;
+                                    ui.colored_label(warn, "dup");
+                                }
+                                response
+                            })
+                            .inner;
+                        if response.clicked() {
                             clicked = Some(server.id.clone());
                         }
                     }
@@ -242,7 +249,11 @@ impl eframe::App for CampfireApp {
             let active = proc.map(|p| !p.is_terminal()).unwrap_or(false);
 
             ui.horizontal(|ui| {
+                status_dot(ui, &status);
                 ui.heading(&server.name);
+                if let Some(port) = server.port {
+                    ui.weak(format!(":{port}"));
+                }
                 ui.label(status_text(&status));
                 if active {
                     if ui.button("Stop").clicked() {
@@ -319,4 +330,21 @@ fn status_text(status: &Status) -> String {
         Status::Crashed { code: Some(code) } => format!("crashed (exit {code})"),
         Status::Crashed { code: None } => "crashed".to_string(),
     }
+}
+
+/// The status indicator color (green running / amber starting / red crashed /
+/// gray stopped).
+fn status_color(status: &Status) -> egui::Color32 {
+    match status {
+        Status::Running => egui::Color32::from_rgb(0x2E, 0x7D, 0x32),
+        Status::Starting => egui::Color32::from_rgb(0xC2, 0x88, 0x1F),
+        Status::Crashed { .. } => egui::Color32::from_rgb(0xC0, 0x39, 0x2B),
+        Status::Stopped => egui::Color32::from_rgb(0x9E, 0x9E, 0x9E),
+    }
+}
+
+/// Paint a small filled status circle inline (no font glyph dependency).
+fn status_dot(ui: &mut egui::Ui, status: &Status) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+    ui.painter().circle_filled(rect.center(), 4.0, status_color(status));
 }

@@ -39,6 +39,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
         }
     });
 
+    // Tight line spacing for a terminal-like density (the app default is roomier).
+    ui.spacing_mut().item_spacing.y = 2.0;
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let base = ui.visuals().text_color();
