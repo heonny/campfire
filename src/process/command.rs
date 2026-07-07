@@ -9,16 +9,28 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::process::Command;
 
-/// Wrap a user command string in the platform shell, so PATH, `.cmd` shims, and
-/// shell operators resolve the way a developer expects.
+/// Wrap a user command string in a shell, so PATH, `.cmd` shims, and shell
+/// operators resolve the way a developer expects.
 ///
+/// `shell_override` (from `ServerConfig::shell`) lets a server pick its own
+/// shell + flags, e.g. `zsh -lic` to source `.zshrc` for nvm-managed tools.
+/// When `None`:
 /// - Unix: the login shell (`$SHELL`, else `/bin/sh`) with `-lc "<command>"`,
-///   which sources login profiles (`.zprofile`/`.profile`) so a GUI-launched
-///   app picks up PATH set there. Caveat: `-lc` is non-interactive, so it does
-///   NOT source `.zshrc`/`.bashrc`; nvm/version-manager PATH placed there is not
-///   seen (revisit: source known manager init scripts if this bites).
+///   which sources login profiles (`.zprofile`/`.profile`). Caveat: `-lc` is
+///   non-interactive and does NOT source `.zshrc`/`.bashrc`, so nvm PATH placed
+///   there is not seen — set a per-server `shell` (e.g. `zsh -lic`) for that.
 /// - Windows: `cmd /C "<command>"`, so `.cmd` shims like `npm.cmd` resolve.
-pub fn shell_invocation(command: &str) -> (OsString, Vec<OsString>) {
+pub fn shell_invocation(command: &str, shell_override: Option<&str>) -> (OsString, Vec<OsString>) {
+    if let Some(spec) = shell_override {
+        let mut parts: Vec<&str> = spec.split_whitespace().collect();
+        if !parts.is_empty() {
+            let program = OsString::from(parts.remove(0));
+            let mut args: Vec<OsString> = parts.into_iter().map(OsString::from).collect();
+            args.push(OsString::from(command));
+            return (program, args);
+        }
+    }
+
     #[cfg(windows)]
     let invocation = (
         OsString::from("cmd"),
@@ -78,7 +90,7 @@ pub fn build_command(config: &ServerConfig) -> std::io::Result<Command> {
     };
     let env = merge_env(&file_vars, &config.env, config.port);
 
-    let (program, args) = shell_invocation(&config.command);
+    let (program, args) = shell_invocation(&config.command, config.shell.as_deref());
     let mut cmd = Command::new(program);
     cmd.args(args);
     cmd.current_dir(&config.cwd);
@@ -95,8 +107,8 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn unix_wraps_in_login_shell() {
-        let (program, args) = shell_invocation("npm run dev");
+    fn unix_default_wraps_in_login_shell() {
+        let (program, args) = shell_invocation("npm run dev", None);
         assert!(!program.is_empty());
         assert_eq!(
             args,
@@ -106,13 +118,30 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn windows_wraps_in_cmd() {
-        let (program, args) = shell_invocation("npm run dev");
+    fn windows_default_wraps_in_cmd() {
+        let (program, args) = shell_invocation("npm run dev", None);
         assert_eq!(program, OsString::from("cmd"));
         assert_eq!(
             args,
             vec![OsString::from("/C"), OsString::from("npm run dev")]
         );
+    }
+
+    #[test]
+    fn shell_override_parsed_into_program_and_flags() {
+        let (program, args) = shell_invocation("npm run dev", Some("zsh -lic"));
+        assert_eq!(program, OsString::from("zsh"));
+        assert_eq!(
+            args,
+            vec![OsString::from("-lic"), OsString::from("npm run dev")]
+        );
+    }
+
+    #[test]
+    fn blank_shell_override_falls_back_to_default() {
+        // A whitespace-only override must not become an empty program.
+        let (program, _args) = shell_invocation("echo hi", Some("   "));
+        assert!(!program.is_empty());
     }
 
     #[test]

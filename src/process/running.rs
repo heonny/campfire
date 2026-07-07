@@ -162,6 +162,11 @@ impl RunningProcess {
         &self.logs
     }
 
+    /// Clear the captured log buffer; new output keeps streaming in.
+    pub fn clear_logs(&mut self) {
+        self.logs.clear();
+    }
+
     pub fn pid(&self) -> u32 {
         self.pid
     }

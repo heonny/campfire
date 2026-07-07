@@ -93,6 +93,11 @@ pub struct ServerConfig {
     /// Inline environment overrides, layered on top of `env_file`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env: Vec<EnvVar>,
+    /// Optional shell invocation prefix that runs `command`, e.g. `zsh -lic` to
+    /// source `.zshrc` for nvm-managed tools. When None, the platform default is
+    /// used (`$SHELL -lc` on Unix, `cmd /C` on Windows).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
 }
 
 impl ServerConfig {
@@ -111,6 +116,7 @@ impl ServerConfig {
             port: preset.default_port(),
             env_file: None,
             env: Vec::new(),
+            shell: None,
         }
     }
 

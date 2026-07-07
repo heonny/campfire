@@ -3,7 +3,6 @@
 //!
 //! The `*_from`/`*_to` functions take an explicit path and form the testable
 //! core; [`load`]/[`save`] wrap them with the resolved default location.
-#![allow(dead_code)] // Public API wired incrementally; save() lands with the UI.
 
 use crate::model::ServerConfig;
 use serde::{Deserialize, Serialize};

@@ -7,13 +7,15 @@ mod model;
 mod port;
 mod process;
 mod store;
+mod ui;
 
 use eframe::egui;
 use model::ServerConfig;
-use process::log_buffer::LogBuffer;
 use process::running::{RunningProcess, Status};
 use std::collections::HashMap;
 use std::time::Duration;
+use ui::editor::{EditorForm, EditorOutcome};
+use ui::log_view::LogView;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -27,8 +29,28 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Campfire",
         options,
-        Box::new(|_cc| Ok(Box::new(CampfireApp::new()))),
+        Box::new(|cc| {
+            setup_fonts(&cc.egui_ctx);
+            Ok(Box::new(CampfireApp::new()))
+        }),
     )
+}
+
+/// Register a Korean font (Nanum Gothic, OFL) as a fallback so Hangul renders —
+/// egui's default fonts cover only Latin and emoji.
+fn setup_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "nanum".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../assets/fonts/NanumGothic-Regular.ttf"
+        ))),
+    );
+    // Append as a fallback: Latin keeps the default font, Hangul resolves here.
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts.families.entry(family).or_default().push("nanum".to_owned());
+    }
+    ctx.set_fonts(fonts);
 }
 
 /// A user action captured during rendering, applied after the panels close so
@@ -36,14 +58,22 @@ fn main() -> eframe::Result<()> {
 enum Action {
     Start(String),
     Stop(String),
+    ClearLogs(String),
+    OpenNew,
+    OpenEdit(String),
 }
 
 /// Root application state.
 struct CampfireApp {
     servers: Vec<ServerConfig>,
-    selected: Option<usize>,
+    /// Id of the selected server (stable across list edits), if any.
+    selected: Option<String>,
     /// Live processes, keyed by `ServerConfig::id`.
     running: HashMap<String, RunningProcess>,
+    /// Open add/edit form, if any.
+    editor: Option<EditorForm>,
+    /// Log pane state (search text, follow toggle).
+    log_view: LogView,
     /// Transient one-line notice (e.g. a port conflict that blocked a start).
     notice: Option<String>,
 }
@@ -57,10 +87,16 @@ impl CampfireApp {
                 Vec::new()
             }
         };
-        Self { servers, selected: None, running: HashMap::new(), notice: None }
+        Self {
+            servers,
+            selected: None,
+            running: HashMap::new(),
+            editor: None,
+            log_view: LogView::new(),
+            notice: None,
+        }
     }
 
-    /// Spawn the server with `id`, refusing if its port is already taken.
     fn start_server(&mut self, id: &str, ctx: egui::Context) {
         let Some(server) = self.servers.iter().find(|s| s.id == id).cloned() else {
             return;
@@ -81,6 +117,62 @@ impl CampfireApp {
             Err(err) => {
                 self.notice = Some(format!("Failed to start '{}': {err}", server.name));
             }
+        }
+    }
+
+    fn apply_action(&mut self, action: Action, ctx: egui::Context) {
+        match action {
+            Action::Start(id) => self.start_server(&id, ctx),
+            Action::Stop(id) => {
+                if let Some(proc) = self.running.get_mut(&id) {
+                    proc.stop(Duration::from_secs(3));
+                }
+            }
+            Action::ClearLogs(id) => {
+                if let Some(proc) = self.running.get_mut(&id) {
+                    proc.clear_logs();
+                }
+            }
+            Action::OpenNew => self.editor = Some(EditorForm::new_server()),
+            Action::OpenEdit(id) => {
+                if let Some(server) = self.servers.iter().find(|s| s.id == id) {
+                    self.editor = Some(EditorForm::from_config(server));
+                }
+            }
+        }
+    }
+
+    fn apply_editor_outcome(&mut self, outcome: EditorOutcome) {
+        match outcome {
+            EditorOutcome::None => {}
+            EditorOutcome::Cancel => self.editor = None,
+            EditorOutcome::Save(config) => {
+                match self.servers.iter_mut().find(|s| s.id == config.id) {
+                    Some(existing) => *existing = config,
+                    None => self.servers.push(config),
+                }
+                self.persist();
+                self.editor = None;
+            }
+            EditorOutcome::Delete(id) => {
+                self.running.remove(&id); // dropped -> Drop force-kills the group
+                self.servers.retain(|s| s.id != id);
+                if self.selected.as_deref() == Some(id.as_str()) {
+                    self.selected = None;
+                }
+                self.persist();
+                self.editor = None;
+            }
+        }
+    }
+
+    fn persist(&mut self) {
+        let doc = store::ConfigDoc {
+            servers: self.servers.clone(),
+            ..store::ConfigDoc::default()
+        };
+        if let Err(err) = store::save(&doc) {
+            self.notice = Some(format!("Failed to save config: {err}"));
         }
     }
 }
@@ -115,13 +207,19 @@ impl eframe::App for CampfireApp {
         egui::Panel::left("server_list")
             .default_size(220.0)
             .show(ui, |ui| {
-                ui.heading("Servers");
+                ui.horizontal(|ui| {
+                    ui.heading("Servers");
+                    if ui.button("+ Add").clicked() {
+                        action = Some(Action::OpenNew);
+                    }
+                });
                 ui.separator();
                 if self.servers.is_empty() {
                     ui.weak("(등록된 서버 없음)");
                 } else {
-                    let mut clicked = None;
-                    for (index, server) in self.servers.iter().enumerate() {
+                    let mut clicked: Option<String> = None;
+                    for server in &self.servers {
+                        let is_selected = self.selected.as_deref() == Some(server.id.as_str());
                         let state_tag = match self.running.get(&server.id).map(|p| p.status()) {
                             Some(Status::Running | Status::Starting) => "  · running",
                             Some(Status::Crashed { .. }) => "  · crashed",
@@ -133,8 +231,8 @@ impl eframe::App for CampfireApp {
                         };
                         let label =
                             format!("{}{}{state_tag}{dup_tag}", server.name, port_suffix(server));
-                        if ui.selectable_label(self.selected == Some(index), label).clicked() {
-                            clicked = Some(index);
+                        if ui.selectable_label(is_selected, label).clicked() {
+                            clicked = Some(server.id.clone());
                         }
                     }
                     if clicked.is_some() {
@@ -144,9 +242,13 @@ impl eframe::App for CampfireApp {
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
-            let Some(server) = self.selected.and_then(|i| self.servers.get(i)) else {
+            let selected = self
+                .selected
+                .as_ref()
+                .and_then(|id| self.servers.iter().find(|s| &s.id == id));
+            let Some(server) = selected else {
                 ui.centered_and_justified(|ui| {
-                    ui.weak("좌측에서 서버를 선택하거나 새로 추가하세요");
+                    ui.weak("좌측에서 서버를 선택하거나 + Add로 추가하세요");
                 });
                 return;
             };
@@ -164,9 +266,11 @@ impl eframe::App for CampfireApp {
                 } else if ui.button("Start").clicked() {
                     action = Some(Action::Start(server.id.clone()));
                 }
+                if ui.button("Edit").clicked() {
+                    action = Some(Action::OpenEdit(server.id.clone()));
+                }
             });
 
-            // Port-conflict warnings (requirement: surface port clashes).
             if let Some(assigned) = server.port {
                 let warn = ui.visuals().warn_fg_color;
                 if dup_ports.contains(&assigned) {
@@ -183,21 +287,33 @@ impl eframe::App for CampfireApp {
             ui.separator();
 
             match proc {
-                Some(proc) => render_logs(ui, proc.logs()),
+                Some(proc) => {
+                    if ui::log_view::show(ui, &mut self.log_view, proc.logs()) {
+                        action = Some(Action::ClearLogs(server.id.clone()));
+                    }
+                }
                 None => {
                     ui.weak("no output yet");
                 }
             }
         });
 
-        match action {
-            Some(Action::Start(id)) => self.start_server(&id, ui.ctx().clone()),
-            Some(Action::Stop(id)) => {
-                if let Some(proc) = self.running.get_mut(&id) {
-                    proc.stop(Duration::from_secs(3));
+        if let Some(action) = action {
+            self.apply_action(action, ui.ctx().clone());
+        }
+
+        if self.editor.is_some() {
+            let mut outcome = EditorOutcome::None;
+            if let Some(form) = &mut self.editor {
+                let response = egui::Modal::new(egui::Id::new("server_editor"))
+                    .show(ui.ctx(), |ui| ui::editor::show(ui, form));
+                let dismissed = response.should_close();
+                outcome = response.inner;
+                if dismissed && matches!(outcome, EditorOutcome::None) {
+                    outcome = EditorOutcome::Cancel;
                 }
             }
-            None => {}
+            self.apply_editor_outcome(outcome);
         }
     }
 }
@@ -218,24 +334,4 @@ fn status_text(status: &Status) -> String {
         Status::Crashed { code: Some(code) } => format!("crashed (exit {code})"),
         Status::Crashed { code: None } => "crashed".to_string(),
     }
-}
-
-/// Minimal log view (step 3): the last lines, tailing. The full search/filter
-/// viewer lands in step 5.
-fn render_logs(ui: &mut egui::Ui, logs: &LogBuffer) {
-    if logs.is_empty() {
-        ui.weak("no output yet");
-        return;
-    }
-    egui::ScrollArea::vertical()
-        .stick_to_bottom(true)
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            let start = logs.len().saturating_sub(1000);
-            for index in start..logs.len() {
-                if let Some(line) = logs.get(index) {
-                    ui.monospace(&line.text);
-                }
-            }
-        });
 }
