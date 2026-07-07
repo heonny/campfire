@@ -1,7 +1,8 @@
 //! Campfire — local multi-server manager.
 //!
 //! Targets egui/eframe 0.35: the app entry point is `App::ui(&mut Ui, ..)` and
-//! panels use the unified `egui::Panel` type shown into a `&mut Ui`.
+//! panels use the unified `egui::Panel` type shown into a `&mut Ui`. Rendering
+//! lives in the `ui` module; this file owns state and applies actions.
 
 mod ansi;
 mod metrics;
@@ -14,11 +15,12 @@ mod ui;
 
 use eframe::egui;
 use model::ServerConfig;
-use process::running::{RunningProcess, Status};
+use process::running::RunningProcess;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use ui::editor::{EditorForm, EditorOutcome};
 use ui::log_view::LogView;
+use ui::Action;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -37,17 +39,6 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(CampfireApp::new()))
         }),
     )
-}
-
-/// A user action captured during rendering, applied after the panels close so
-/// that the UI closures never need a mutable borrow of `self`.
-enum Action {
-    Start(String),
-    Stop(String),
-    Restart(String),
-    ClearLogs(String),
-    OpenNew,
-    OpenEdit(String),
 }
 
 /// Root application state.
@@ -140,12 +131,14 @@ impl CampfireApp {
                     proc.clear_logs();
                 }
             }
+            Action::Select(id) => self.selected = Some(id),
             Action::OpenNew => self.editor = Some(EditorForm::new_server()),
             Action::OpenEdit(id) => {
                 if let Some(server) = self.servers.iter().find(|s| s.id == id) {
                     self.editor = Some(EditorForm::from_config(server));
                 }
             }
+            Action::OpenHelp => self.show_help = true,
         }
     }
 
@@ -213,7 +206,6 @@ impl eframe::App for CampfireApp {
 
         let dup_ports = port::duplicate_config_ports(&self.servers);
         let mut action: Option<Action> = None;
-        let mut help_click = false;
 
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -222,7 +214,7 @@ impl eframe::App for CampfireApp {
                 let active = self.running.values().filter(|p| !p.is_terminal()).count();
                 ui.label(format!("running {active}/{}", self.servers.len()));
                 if ui.button("Help").clicked() {
-                    help_click = true;
+                    action = Some(Action::OpenHelp);
                 }
                 if let Some(notice) = &self.notice {
                     ui.separator();
@@ -232,120 +224,18 @@ impl eframe::App for CampfireApp {
             });
         });
 
+        let view = ui::View {
+            servers: &self.servers,
+            running: &self.running,
+            dup_ports: &dup_ports,
+            selected: self.selected.as_deref(),
+            metrics: &self.metrics,
+        };
         egui::Panel::left("server_list")
             .default_size(220.0)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.heading("Servers");
-                    if ui.button("+ Add").clicked() {
-                        action = Some(Action::OpenNew);
-                    }
-                });
-                ui.separator();
-                if self.servers.is_empty() {
-                    ui.weak("(등록된 서버 없음)");
-                } else {
-                    let mut clicked: Option<String> = None;
-                    for server in &self.servers {
-                        let is_selected = self.selected.as_deref() == Some(server.id.as_str());
-                        let status = self
-                            .running
-                            .get(&server.id)
-                            .map(|p| p.status().clone())
-                            .unwrap_or(Status::Stopped);
-                        let dup = server.port.is_some_and(|p| dup_ports.contains(&p));
-                        let response = ui
-                            .horizontal(|ui| {
-                                status_dot(ui, &status);
-                                let label = format!("{}{}", server.name, port_suffix(server));
-                                let response = ui.selectable_label(is_selected, label);
-                                if dup {
-                                    let warn = ui.visuals().warn_fg_color;
-                                    ui.colored_label(warn, "dup");
-                                }
-                                response
-                            })
-                            .inner;
-                        if response.clicked() {
-                            clicked = Some(server.id.clone());
-                        }
-                    }
-                    if clicked.is_some() {
-                        self.selected = clicked;
-                    }
-                }
-            });
-
-        egui::CentralPanel::default().show(ui, |ui| {
-            let selected = self
-                .selected
-                .as_ref()
-                .and_then(|id| self.servers.iter().find(|s| &s.id == id));
-            let Some(server) = selected else {
-                ui.centered_and_justified(|ui| {
-                    ui.weak("좌측에서 서버를 선택하거나 + Add로 추가하세요");
-                });
-                return;
-            };
-            let proc = self.running.get(&server.id);
-            let status = proc.map(|p| p.status().clone()).unwrap_or(Status::Stopped);
-            let active = proc.map(|p| !p.is_terminal()).unwrap_or(false);
-
-            ui.horizontal(|ui| {
-                status_dot(ui, &status);
-                ui.heading(&server.name);
-                if let Some(port) = server.port {
-                    ui.weak(format!(":{port}"));
-                }
-                ui.label(status_text(&status));
-                if active {
-                    if ui.button("Stop").clicked() {
-                        action = Some(Action::Stop(server.id.clone()));
-                    }
-                    if ui.button("Restart").clicked() {
-                        action = Some(Action::Restart(server.id.clone()));
-                    }
-                } else if ui.button("Start").clicked() {
-                    action = Some(Action::Start(server.id.clone()));
-                }
-                if ui.button("Edit").clicked() {
-                    action = Some(Action::OpenEdit(server.id.clone()));
-                }
-            });
-
-            if active
-                && let Some((cpu, mem)) = self.metrics.get(&server.id)
-            {
-                let mem_mb = mem as f64 / 1_048_576.0;
-                ui.weak(format!("CPU {cpu:.0}%   ·   {mem_mb:.0} MB"));
-            }
-
-            if let Some(assigned) = server.port {
-                let warn = ui.visuals().warn_fg_color;
-                if dup_ports.contains(&assigned) {
-                    ui.colored_label(
-                        warn,
-                        format!("port {assigned} is also assigned to another server in config"),
-                    );
-                } else if !active && !port::is_port_free(assigned) {
-                    ui.colored_label(warn, format!("port {assigned} is already in use"));
-                }
-            }
-
-            ui.monospace(&server.command);
-            ui.separator();
-
-            match proc {
-                Some(proc) => {
-                    if ui::log_view::show(ui, &mut self.log_view, proc.logs()) {
-                        action = Some(Action::ClearLogs(server.id.clone()));
-                    }
-                }
-                None => {
-                    ui.weak("no output yet");
-                }
-            }
-        });
+            .show(ui, |ui| ui::server_list::show(ui, &view, &mut action));
+        egui::CentralPanel::default()
+            .show(ui, |ui| ui::detail::show(ui, &view, &mut self.log_view, &mut action));
 
         if let Some(action) = action {
             self.apply_action(action, ui.ctx().clone());
@@ -365,9 +255,6 @@ impl eframe::App for CampfireApp {
             self.apply_editor_outcome(outcome);
         }
 
-        if help_click {
-            self.show_help = true;
-        }
         if self.show_help {
             let response = egui::Modal::new(egui::Id::new("help")).show(ui.ctx(), ui::help::show);
             if response.should_close() || response.inner {
@@ -375,39 +262,4 @@ impl eframe::App for CampfireApp {
             }
         }
     }
-}
-
-/// `"   :8080"` when a port is set, else empty.
-fn port_suffix(server: &ServerConfig) -> String {
-    match server.port {
-        Some(port) => format!("   :{port}"),
-        None => String::new(),
-    }
-}
-
-fn status_text(status: &Status) -> String {
-    match status {
-        Status::Stopped => "stopped".to_string(),
-        Status::Starting => "starting".to_string(),
-        Status::Running => "running".to_string(),
-        Status::Crashed { code: Some(code) } => format!("crashed (exit {code})"),
-        Status::Crashed { code: None } => "crashed".to_string(),
-    }
-}
-
-/// The status indicator color (green running / amber starting / red crashed /
-/// gray stopped).
-fn status_color(status: &Status) -> egui::Color32 {
-    match status {
-        Status::Running => egui::Color32::from_rgb(0x2E, 0x7D, 0x32),
-        Status::Starting => egui::Color32::from_rgb(0xC2, 0x88, 0x1F),
-        Status::Crashed { .. } => egui::Color32::from_rgb(0xC0, 0x39, 0x2B),
-        Status::Stopped => egui::Color32::from_rgb(0x9E, 0x9E, 0x9E),
-    }
-}
-
-/// Paint a small filled status circle inline (no font glyph dependency).
-fn status_dot(ui: &mut egui::Ui, status: &Status) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-    ui.painter().circle_filled(rect.center(), 4.0, status_color(status));
 }
