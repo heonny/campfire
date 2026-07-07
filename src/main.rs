@@ -3,10 +3,12 @@
 //! Targets egui/eframe 0.35: the app entry point is `App::ui(&mut Ui, ..)` and
 //! panels use the unified `egui::Panel` type shown into a `&mut Ui`.
 
+mod ansi;
 mod model;
 mod port;
 mod process;
 mod store;
+mod theme;
 mod ui;
 
 use eframe::egui;
@@ -30,27 +32,10 @@ fn main() -> eframe::Result<()> {
         "Campfire",
         options,
         Box::new(|cc| {
-            setup_fonts(&cc.egui_ctx);
+            theme::setup(&cc.egui_ctx);
             Ok(Box::new(CampfireApp::new()))
         }),
     )
-}
-
-/// Register a Korean font (Nanum Gothic, OFL) as a fallback so Hangul renders —
-/// egui's default fonts cover only Latin and emoji.
-fn setup_fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "nanum".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-            "../assets/fonts/NanumGothic-Regular.ttf"
-        ))),
-    );
-    // Append as a fallback: Latin keeps the default font, Hangul resolves here.
-    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-        fonts.families.entry(family).or_default().push("nanum".to_owned());
-    }
-    ctx.set_fonts(fonts);
 }
 
 /// A user action captured during rendering, applied after the panels close so

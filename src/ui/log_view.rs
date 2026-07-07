@@ -1,5 +1,5 @@
 //! The log viewer: a search box, follow toggle, clear button, and a virtualized
-//! tailing list. Visual polish (stderr colors, spacing) is a later pass.
+//! tailing list with ANSI colors, selectable lines, and a blank bottom row.
 
 use crate::process::log_buffer::LogBuffer;
 use eframe::egui;
@@ -40,34 +40,38 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
     });
 
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let base = ui.visuals().text_color();
     let query = state.search.trim().to_lowercase();
 
     if query.is_empty() {
-        // Common case: no filter — virtualize directly over the buffer, with no
-        // per-frame index allocation.
         if logs.is_empty() {
             ui.weak("no output yet");
             return clear_requested;
         }
+        // One extra virtual row renders as a blank line at the bottom, so the
+        // last real line has room below it (easier to select/drag).
         egui::ScrollArea::vertical()
             .stick_to_bottom(state.follow)
             .auto_shrink([false, false])
-            .show_rows(ui, row_height, logs.len(), |ui, range| {
+            .show_rows(ui, row_height, logs.len() + 1, |ui, range| {
                 for row in range {
-                    if let Some(line) = logs.get(row) {
-                        ui.monospace(&line.text);
+                    match logs.get(row) {
+                        Some(line) => render_line(ui, &line.text, &font, base),
+                        None => {
+                            ui.monospace(" ");
+                        }
                     }
                 }
             });
         return clear_requested;
     }
 
-    // Filtered view: collect matching indices (a scan is user-initiated and
-    // less frequent than plain tailing). A search shouldn't force-scroll.
+    // Filtered view: match against the ANSI-stripped text.
     let visible: Vec<usize> = (0..logs.len())
         .filter(|&index| {
             logs.get(index)
-                .is_some_and(|line| line.text.to_lowercase().contains(&query))
+                .is_some_and(|line| crate::ansi::strip(&line.text).to_lowercase().contains(&query))
         })
         .collect();
     if visible.is_empty() {
@@ -76,13 +80,25 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
     }
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
-        .show_rows(ui, row_height, visible.len(), |ui, range| {
+        .show_rows(ui, row_height, visible.len() + 1, |ui, range| {
             for row in range {
-                if let Some(line) = logs.get(visible[row]) {
-                    ui.monospace(&line.text);
+                match visible.get(row) {
+                    Some(&index) => {
+                        if let Some(line) = logs.get(index) {
+                            render_line(ui, &line.text, &font, base);
+                        }
+                    }
+                    None => {
+                        ui.monospace(" ");
+                    }
                 }
             }
         });
 
     clear_requested
+}
+
+fn render_line(ui: &mut egui::Ui, text: &str, font: &egui::FontId, base: egui::Color32) {
+    let job = crate::ansi::to_job(text, font.clone(), base);
+    ui.add(egui::Label::new(job).selectable(true));
 }
