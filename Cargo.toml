@@ -11,6 +11,7 @@ eframe = "0.35.0"
 egui = "0.35.0"
 rfd = "0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
+sysinfo = "0.39.5"
 thiserror = "2.0.18"
 toml = "1.1.2"
 uuid = { version = "1.23.4", features = ["v4"] }

@@ -4,6 +4,7 @@
 //! panels use the unified `egui::Panel` type shown into a `&mut Ui`.
 
 mod ansi;
+mod metrics;
 mod model;
 mod port;
 mod process;
@@ -64,6 +65,8 @@ struct CampfireApp {
     notice: Option<String>,
     /// Servers awaiting a restart once their current process has terminated.
     restart_pending: HashSet<String>,
+    /// Cached per-server CPU/memory usage.
+    metrics: metrics::Metrics,
 }
 
 impl CampfireApp {
@@ -83,6 +86,7 @@ impl CampfireApp {
             log_view: LogView::new(),
             notice: None,
             restart_pending: HashSet::new(),
+            metrics: metrics::Metrics::new(),
         }
     }
 
@@ -183,6 +187,7 @@ impl eframe::App for CampfireApp {
         for proc in self.running.values_mut() {
             proc.poll();
         }
+        self.metrics.refresh(&self.running);
         if self.running.values().any(|p| !p.is_terminal()) {
             ui.ctx().request_repaint_after(Duration::from_millis(200));
         }
@@ -300,6 +305,13 @@ impl eframe::App for CampfireApp {
                     action = Some(Action::OpenEdit(server.id.clone()));
                 }
             });
+
+            if active
+                && let Some((cpu, mem)) = self.metrics.get(&server.id)
+            {
+                let mem_mb = mem as f64 / 1_048_576.0;
+                ui.weak(format!("CPU {cpu:.0}%   ·   {mem_mb:.0} MB"));
+            }
 
             if let Some(assigned) = server.port {
                 let warn = ui.visuals().warn_fg_color;
