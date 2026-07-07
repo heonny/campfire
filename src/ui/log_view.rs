@@ -2,6 +2,7 @@
 //! virtualized tailing list with ANSI colors, search highlighting, selectable
 //! lines, and a blank bottom row.
 
+use super::icons;
 use crate::process::log_buffer::LogBuffer;
 use eframe::egui;
 
@@ -41,14 +42,26 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
                 .hint_text("search")
                 .desired_width(200.0),
         );
-        if ui.button("top").clicked() {
+        if ui
+            .add(egui::Button::image(icons::scroll_top()))
+            .on_hover_text("scroll to top")
+            .clicked()
+        {
             state.scroll_to = Some(ScrollTo::Top);
         }
-        if ui.button("bottom").clicked() {
+        if ui
+            .add(egui::Button::image(icons::scroll_bottom()))
+            .on_hover_text("scroll to bottom")
+            .clicked()
+        {
             state.scroll_to = Some(ScrollTo::Bottom);
         }
         ui.checkbox(&mut state.follow, "follow");
-        if ui.button("clear").clicked() {
+        if ui
+            .add(egui::Button::image(icons::clear()))
+            .on_hover_text("clear log")
+            .clicked()
+        {
             clear_requested = true;
         }
     });

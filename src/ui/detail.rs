@@ -1,7 +1,7 @@
 //! The central panel: the selected server's header card (status, port, actions,
 //! CPU/memory, port-conflict warnings, command) and the log view below it.
 
-use super::{status_dot, status_text, Action, View};
+use super::{icons, status_dot, status_text, Action, View};
 use crate::model::ServerConfig;
 use crate::process::running::{RunningProcess, Status};
 use crate::theme;
@@ -51,17 +51,29 @@ fn header_row(
         }
         ui.weak(status_text(status));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Edit").clicked() {
+            if ui
+                .add(egui::Button::image_and_text(icons::edit(), "Edit"))
+                .clicked()
+            {
                 *action = Some(Action::OpenEdit(server.id.clone()));
             }
             if active {
-                if ui.button("Restart").clicked() {
+                if ui
+                    .add(egui::Button::image_and_text(icons::restart(), "Restart"))
+                    .clicked()
+                {
                     *action = Some(Action::Restart(server.id.clone()));
                 }
-                if ui.button("Stop").clicked() {
+                if ui
+                    .add(egui::Button::image_and_text(icons::stop(), "Stop"))
+                    .clicked()
+                {
                     *action = Some(Action::Stop(server.id.clone()));
                 }
-            } else if ui.button("Start").clicked() {
+            } else if ui
+                .add(egui::Button::image_and_text(icons::start(), "Start"))
+                .clicked()
+            {
                 *action = Some(Action::Start(server.id.clone()));
             }
         });

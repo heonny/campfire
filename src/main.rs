@@ -38,6 +38,7 @@ fn main() -> eframe::Result<()> {
         "Campfire",
         options,
         Box::new(|cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
             theme::setup(&cc.egui_ctx);
             Ok(Box::new(CampfireApp::new()))
         }),
@@ -234,7 +235,10 @@ impl eframe::App for CampfireApp {
                 ui.separator();
                 let active = self.running.values().filter(|p| !p.is_terminal()).count();
                 ui.label(format!("running {active}/{}", self.servers.len()));
-                if ui.button("Help").clicked() {
+                if ui
+                    .add(egui::Button::image_and_text(ui::icons::help(), "Help"))
+                    .clicked()
+                {
                     action = Some(Action::OpenHelp);
                 }
                 if let Some(notice) = &self.notice {

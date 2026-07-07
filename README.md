@@ -67,8 +67,8 @@ The in-app **Help** button has the rest. A few notes:
 
 ## Built with
 
-Rust · [egui / eframe](https://github.com/emilk/egui) · command-group · sysinfo ·
-rfd
+Rust · [egui / eframe](https://github.com/emilk/egui) · egui_extras · command-group ·
+sysinfo · rfd
 
 ## License
 
@@ -76,3 +76,6 @@ The application code is under the MIT License — see [LICENSE](LICENSE).
 
 The bundled [Pretendard](https://github.com/orioncactus/pretendard) font is
 under the SIL Open Font License (`assets/fonts/Pretendard-LICENSE.txt`).
+
+The [Lucide](https://lucide.dev) icons are under the ISC License
+(`assets/icons/LICENSE`).

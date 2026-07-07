@@ -11,6 +11,7 @@ use std::collections::{BTreeSet, HashMap};
 pub mod detail;
 pub mod editor;
 pub mod help;
+pub mod icons;
 pub mod log_view;
 pub mod server_list;
 

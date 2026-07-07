@@ -1,7 +1,7 @@
 //! The left panel: an Add button and the list of servers, each rendered as a
 //! clickable card with a status dot, name, port, and a duplicate-port marker.
 
-use super::{status_dot, Action, View};
+use super::{icons, status_dot, Action, View};
 use crate::model::ServerConfig;
 use crate::process::running::Status;
 use crate::theme;
@@ -10,7 +10,10 @@ use eframe::egui;
 pub fn show(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
     ui.horizontal(|ui| {
         ui.heading("Servers");
-        if ui.button("+ Add").clicked() {
+        if ui
+            .add(egui::Button::image_and_text(icons::add(), "Add"))
+            .clicked()
+        {
             *action = Some(Action::OpenNew);
         }
     });
