@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+command-group = "5.0.1"
 directories = "6.0.0"
+dotenvy = "0.15.7"
 eframe = "0.35.0"
 egui = "0.35.0"
 serde = { version = "1.0.228", features = ["derive"] }

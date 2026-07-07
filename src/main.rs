@@ -4,10 +4,15 @@
 //! panels use the unified `egui::Panel` type shown into a `&mut Ui`.
 
 mod model;
+mod process;
 mod store;
 
 use eframe::egui;
 use model::ServerConfig;
+use process::log_buffer::LogBuffer;
+use process::running::{RunningProcess, Status};
+use std::collections::HashMap;
+use std::time::Duration;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -25,12 +30,19 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-/// Root application state. Grows as features land (process control, logs).
+/// A user action captured during rendering, applied after the panels close so
+/// that the UI closures never need a mutable borrow of `self`.
+enum Action {
+    Start(String),
+    Stop(String),
+}
+
+/// Root application state.
 struct CampfireApp {
-    /// Persisted server definitions, loaded once at startup.
     servers: Vec<ServerConfig>,
-    /// Index of the currently selected server, if any.
     selected: Option<usize>,
+    /// Live processes, keyed by `ServerConfig::id`.
+    running: HashMap<String, RunningProcess>,
 }
 
 impl CampfireApp {
@@ -42,17 +54,42 @@ impl CampfireApp {
                 Vec::new()
             }
         };
-        Self { servers, selected: None }
+        Self { servers, selected: None, running: HashMap::new() }
+    }
+
+    /// Spawn the server with `id`, wiring reader-thread wakeups to `ctx`.
+    fn start_server(&mut self, id: &str, ctx: egui::Context) {
+        let Some(server) = self.servers.iter().find(|s| s.id == id).cloned() else {
+            return;
+        };
+        let wake = move || ctx.request_repaint();
+        match RunningProcess::spawn(&server, wake) {
+            Ok(proc) => {
+                self.running.insert(server.id, proc);
+            }
+            Err(err) => eprintln!("campfire: failed to start '{}': {err}", server.name),
+        }
     }
 }
 
 impl eframe::App for CampfireApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Drive live processes: drain logs, detect exit, escalate shutdown.
+        for proc in self.running.values_mut() {
+            proc.poll();
+        }
+        if self.running.values().any(|p| !p.is_terminal()) {
+            ui.ctx().request_repaint_after(Duration::from_millis(200));
+        }
+
+        let mut action: Option<Action> = None;
+
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Campfire");
                 ui.separator();
-                ui.label("local multi-server manager");
+                let active = self.running.values().filter(|p| !p.is_terminal()).count();
+                ui.label(format!("running {active}/{}", self.servers.len()));
             });
         });
 
@@ -66,10 +103,12 @@ impl eframe::App for CampfireApp {
                 } else {
                     let mut clicked = None;
                     for (index, server) in self.servers.iter().enumerate() {
-                        let label = match server.port {
-                            Some(port) => format!("{}   :{port}", server.name),
-                            None => server.name.clone(),
+                        let tag = match self.running.get(&server.id).map(|p| p.status()) {
+                            Some(Status::Running | Status::Starting) => "  · running",
+                            Some(Status::Crashed { .. }) => "  · crashed",
+                            _ => "",
                         };
+                        let label = format!("{}{}{tag}", server.name, port_suffix(server));
                         if ui.selectable_label(self.selected == Some(index), label).clicked() {
                             clicked = Some(index);
                         }
@@ -81,17 +120,84 @@ impl eframe::App for CampfireApp {
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
-            match self.selected.and_then(|index| self.servers.get(index)) {
-                Some(server) => {
-                    ui.heading(&server.name);
-                    ui.weak(&server.command);
+            let Some(server) = self.selected.and_then(|i| self.servers.get(i)) else {
+                ui.centered_and_justified(|ui| {
+                    ui.weak("좌측에서 서버를 선택하거나 새로 추가하세요");
+                });
+                return;
+            };
+            let proc = self.running.get(&server.id);
+            let status = proc.map(|p| p.status().clone()).unwrap_or(Status::Stopped);
+            let active = proc.map(|p| !p.is_terminal()).unwrap_or(false);
+
+            ui.horizontal(|ui| {
+                ui.heading(&server.name);
+                ui.label(status_text(&status));
+                if active {
+                    if ui.button("Stop").clicked() {
+                        action = Some(Action::Stop(server.id.clone()));
+                    }
+                } else if ui.button("Start").clicked() {
+                    action = Some(Action::Start(server.id.clone()));
                 }
+            });
+            ui.monospace(&server.command);
+            ui.separator();
+
+            match proc {
+                Some(proc) => render_logs(ui, proc.logs()),
                 None => {
-                    ui.centered_and_justified(|ui| {
-                        ui.weak("좌측에서 서버를 선택하거나 새로 추가하세요");
-                    });
+                    ui.weak("no output yet");
                 }
             }
         });
+
+        match action {
+            Some(Action::Start(id)) => self.start_server(&id, ui.ctx().clone()),
+            Some(Action::Stop(id)) => {
+                if let Some(proc) = self.running.get_mut(&id) {
+                    proc.stop(Duration::from_secs(3));
+                }
+            }
+            None => {}
+        }
     }
+}
+
+/// `"   :8080"` when a port is set, else empty.
+fn port_suffix(server: &ServerConfig) -> String {
+    match server.port {
+        Some(port) => format!("   :{port}"),
+        None => String::new(),
+    }
+}
+
+fn status_text(status: &Status) -> String {
+    match status {
+        Status::Stopped => "stopped".to_string(),
+        Status::Starting => "starting".to_string(),
+        Status::Running => "running".to_string(),
+        Status::Crashed { code: Some(code) } => format!("crashed (exit {code})"),
+        Status::Crashed { code: None } => "crashed".to_string(),
+    }
+}
+
+/// Minimal log view (step 3): the last lines, tailing. The full search/filter
+/// viewer lands in step 5.
+fn render_logs(ui: &mut egui::Ui, logs: &LogBuffer) {
+    if logs.is_empty() {
+        ui.weak("no output yet");
+        return;
+    }
+    egui::ScrollArea::vertical()
+        .stick_to_bottom(true)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let start = logs.len().saturating_sub(1000);
+            for index in start..logs.len() {
+                if let Some(line) = logs.get(index) {
+                    ui.monospace(&line.text);
+                }
+            }
+        });
 }
