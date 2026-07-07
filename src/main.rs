@@ -23,13 +23,16 @@ use ui::log_view::LogView;
 use ui::Action;
 
 fn main() -> eframe::Result<()> {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Campfire")
-            .with_inner_size([1024.0, 640.0])
-            .with_min_inner_size([720.0, 480.0]),
-        ..Default::default()
-    };
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Campfire")
+        .with_inner_size([1024.0, 640.0])
+        .with_min_inner_size([720.0, 480.0]);
+    if let Ok(icon) =
+        eframe::icon_data::from_png_bytes(include_bytes!("../assets/images/icon-256.png"))
+    {
+        viewport = viewport.with_icon(icon);
+    }
+    let options = eframe::NativeOptions { viewport, ..Default::default() };
 
     eframe::run_native(
         "Campfire",

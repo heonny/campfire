@@ -1,6 +1,10 @@
-# Campfire
+<p align="center">
+  <img src="assets/images/logo-hoz.png" width="440" alt="Campfire">
+</p>
 
-A small, native desktop app for running and managing multiple local dev servers.
+<p align="center">
+  A small, native desktop app for running and managing multiple local dev servers.
+</p>
 
 Start, stop, and restart servers written in any language or framework, watch
 their logs live, and catch port clashes — all from one window. Built in Rust
