@@ -1,18 +1,26 @@
-//! The log viewer: a search box, follow toggle, clear button, and a virtualized
-//! tailing list with ANSI colors, selectable lines, and a blank bottom row.
+//! The log viewer: a search box, top/bottom/follow/clear controls, and a
+//! virtualized tailing list with ANSI colors, search highlighting, selectable
+//! lines, and a blank bottom row.
 
 use crate::process::log_buffer::LogBuffer;
 use eframe::egui;
 
-/// View state for the log pane (search text + whether to tail).
+/// A one-shot scroll request from the top/bottom buttons.
+enum ScrollTo {
+    Top,
+    Bottom,
+}
+
+/// View state for the log pane.
 pub struct LogView {
     search: String,
     follow: bool,
+    scroll_to: Option<ScrollTo>,
 }
 
 impl Default for LogView {
     fn default() -> Self {
-        Self { search: String::new(), follow: true }
+        Self { search: String::new(), follow: true, scroll_to: None }
     }
 }
 
@@ -31,8 +39,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
         ui.add(
             egui::TextEdit::singleline(&mut state.search)
                 .hint_text("search")
-                .desired_width(220.0),
+                .desired_width(200.0),
         );
+        if ui.button("top").clicked() {
+            state.scroll_to = Some(ScrollTo::Top);
+        }
+        if ui.button("bottom").clicked() {
+            state.scroll_to = Some(ScrollTo::Bottom);
+        }
         ui.checkbox(&mut state.follow, "follow");
         if ui.button("clear").clicked() {
             clear_requested = true;
@@ -45,31 +59,35 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let base = ui.visuals().text_color();
     let query = state.search.trim().to_lowercase();
+    let scroll_to = state.scroll_to.take();
 
     if query.is_empty() {
         if logs.is_empty() {
             ui.weak("no output yet");
             return clear_requested;
         }
-        // One extra virtual row renders as a blank line at the bottom, so the
-        // last real line has room below it (easier to select/drag).
-        egui::ScrollArea::vertical()
-            .stick_to_bottom(state.follow)
-            .auto_shrink([false, false])
-            .show_rows(ui, row_height, logs.len() + 1, |ui, range| {
+        // One extra virtual row leaves a blank line at the bottom (easier to
+        // select/drag).
+        let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+        scrolled(area, scroll_to, state.follow).show_rows(
+            ui,
+            row_height,
+            logs.len() + 1,
+            |ui, range| {
                 for row in range {
                     match logs.get(row) {
-                        Some(line) => render_line(ui, &line.text, &font, base),
+                        Some(line) => render_line(ui, &line.text, &font, base, None),
                         None => {
                             ui.monospace(" ");
                         }
                     }
                 }
-            });
+            },
+        );
         return clear_requested;
     }
 
-    // Filtered view: match against the ANSI-stripped text.
+    // Filtered view: match against the ANSI-stripped text; highlight the query.
     let visible: Vec<usize> = (0..logs.len())
         .filter(|&index| {
             logs.get(index)
@@ -80,27 +98,41 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
         ui.weak("no matching lines");
         return clear_requested;
     }
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show_rows(ui, row_height, visible.len() + 1, |ui, range| {
-            for row in range {
-                match visible.get(row) {
-                    Some(&index) => {
-                        if let Some(line) = logs.get(index) {
-                            render_line(ui, &line.text, &font, base);
-                        }
-                    }
-                    None => {
-                        ui.monospace(" ");
+    let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+    scrolled(area, scroll_to, false).show_rows(ui, row_height, visible.len() + 1, |ui, range| {
+        for row in range {
+            match visible.get(row) {
+                Some(&index) => {
+                    if let Some(line) = logs.get(index) {
+                        render_line(ui, &line.text, &font, base, Some(&query));
                     }
                 }
+                None => {
+                    ui.monospace(" ");
+                }
             }
-        });
+        }
+    });
 
     clear_requested
 }
 
-fn render_line(ui: &mut egui::Ui, text: &str, font: &egui::FontId, base: egui::Color32) {
-    let job = crate::ansi::to_job(text, font.clone(), base);
+/// Apply a one-shot scroll request, or fall back to tailing when following.
+fn scrolled(area: egui::ScrollArea, scroll_to: Option<ScrollTo>, follow: bool) -> egui::ScrollArea {
+    match scroll_to {
+        Some(ScrollTo::Top) => area.vertical_scroll_offset(0.0),
+        Some(ScrollTo::Bottom) => area.vertical_scroll_offset(f32::MAX),
+        None => area.stick_to_bottom(follow),
+    }
+}
+
+fn render_line(
+    ui: &mut egui::Ui,
+    text: &str,
+    font: &egui::FontId,
+    base: egui::Color32,
+    highlight: Option<&str>,
+) {
+    let job = crate::ansi::to_job(text, font.clone(), base, highlight);
     ui.add(egui::Label::new(job).selectable(true));
 }

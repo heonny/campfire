@@ -1,7 +1,8 @@
 //! Minimal ANSI SGR (color) handling for the log view: turn a line containing
-//! `ESC[..m` escape sequences into a colored [`LayoutJob`], and strip the codes
-//! for plain-text search. Only foreground colors + reset are interpreted;
-//! other codes (bold, background, cursor moves) are consumed and ignored.
+//! `ESC[..m` escape sequences into a colored [`LayoutJob`], optionally
+//! highlighting a search substring, and strip the codes for plain-text search.
+//! Only foreground colors + reset are interpreted; other codes (bold,
+//! background, cursor moves) are consumed and ignored.
 
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
@@ -29,14 +30,18 @@ const BRIGHT: [Color32; 8] = [
     Color32::from_rgb(0x42, 0x42, 0x42), // 97
 ];
 
+/// Search-match highlight background (amber, matching the app accent).
+const HIGHLIGHT_BG: Color32 = Color32::from_rgb(0xFF, 0xE0, 0x82);
+
 /// Build a colored [`LayoutJob`] from a line that may contain ANSI SGR codes.
-pub fn to_job(text: &str, font: FontId, base: Color32) -> LayoutJob {
+/// If `highlight` is a (lowercased) query, its matches are highlighted.
+pub fn to_job(text: &str, font: FontId, base: Color32, highlight: Option<&str>) -> LayoutJob {
     let mut job = LayoutJob::default();
     let mut color = base;
     let mut rest = text;
     while let Some(idx) = rest.find('\x1b') {
         if idx > 0 {
-            push(&mut job, &rest[..idx], &font, color);
+            push(&mut job, &rest[..idx], &font, color, highlight);
         }
         match parse_csi(&rest[idx..], color, base) {
             Some((consumed, new_color)) => {
@@ -47,7 +52,7 @@ pub fn to_job(text: &str, font: FontId, base: Color32) -> LayoutJob {
         }
     }
     if !rest.is_empty() {
-        push(&mut job, rest, &font, color);
+        push(&mut job, rest, &font, color, highlight);
     }
     job
 }
@@ -70,11 +75,47 @@ pub fn strip(text: &str) -> String {
     out
 }
 
-fn push(job: &mut LayoutJob, text: &str, font: &FontId, color: Color32) {
+/// Append `text` in `color`, highlighting case-insensitive matches of the
+/// (already-lowercased) `highlight` query. Unicode-safe: matching runs on the
+/// lowercased text and is only applied when its byte offsets map cleanly back
+/// to the original — true for ASCII, Hangul, and most scripts; the rare
+/// length-changing folds (ß, İ, …) fall back to plain, un-highlighted text.
+fn push(job: &mut LayoutJob, text: &str, font: &FontId, color: Color32, highlight: Option<&str>) {
+    let Some(query) = highlight.filter(|q| !q.is_empty()) else {
+        return append(job, text, font, color, None);
+    };
+    let lower = text.to_lowercase();
+    if lower.len() != text.len() {
+        return append(job, text, font, color, None); // fold changed length
+    }
+    let mut start = 0;
+    while let Some(pos) = lower[start..].find(query) {
+        let at = start + pos;
+        let end = at + query.len();
+        if !text.is_char_boundary(at) || !text.is_char_boundary(end) {
+            break; // offsets don't align to chars (pathological): stop here
+        }
+        if at > start {
+            append(job, &text[start..at], font, color, None);
+        }
+        append(job, &text[at..end], font, color, Some(HIGHLIGHT_BG));
+        start = end;
+    }
+    if start < text.len() {
+        append(job, &text[start..], font, color, None);
+    }
+}
+
+fn append(job: &mut LayoutJob, text: &str, font: &FontId, color: Color32, background: Option<Color32>) {
     job.append(
         text,
         0.0,
-        TextFormat { font_id: font.clone(), color, ..Default::default() },
+        TextFormat {
+            font_id: font.clone(),
+            color,
+            background: background.unwrap_or(Color32::TRANSPARENT),
+            ..Default::default()
+        },
     );
 }
 
@@ -130,7 +171,7 @@ mod tests {
     #[test]
     fn to_job_splits_into_colored_runs() {
         let base = Color32::BLACK;
-        let job = to_job("\x1b[31mred\x1b[0m tail", FontId::default(), base);
+        let job = to_job("\x1b[31mred\x1b[0m tail", FontId::default(), base, None);
         assert_eq!(job.text, "red tail");
         assert_eq!(job.sections.len(), 2);
         assert_eq!(job.sections[0].format.color, STANDARD[1]); // red
@@ -139,8 +180,27 @@ mod tests {
 
     #[test]
     fn to_job_plain_text_is_single_run() {
-        let job = to_job("no colors here", FontId::default(), Color32::BLACK);
+        let job = to_job("no colors here", FontId::default(), Color32::BLACK, None);
         assert_eq!(job.sections.len(), 1);
         assert_eq!(job.text, "no colors here");
+    }
+
+    #[test]
+    fn to_job_highlights_query_case_insensitively() {
+        let job = to_job("hello WORLD", FontId::default(), Color32::BLACK, Some("world"));
+        assert_eq!(job.text, "hello WORLD");
+        assert_eq!(job.sections.len(), 2); // "hello " + highlighted "WORLD"
+        assert_eq!(job.sections[0].format.background, Color32::TRANSPARENT);
+        assert_eq!(job.sections[1].format.background, HIGHLIGHT_BG);
+    }
+
+    #[test]
+    fn to_job_highlights_non_ascii_matches() {
+        // Hangul (no case distinction) must still highlight — the old ASCII-only
+        // guard silently skipped these lines.
+        let job = to_job("빌드 완료됨", FontId::default(), Color32::BLACK, Some("완료"));
+        assert_eq!(job.text, "빌드 완료됨");
+        assert_eq!(job.sections.len(), 3); // "빌드 " + "완료" + "됨"
+        assert_eq!(job.sections[1].format.background, HIGHLIGHT_BG);
     }
 }
