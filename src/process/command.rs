@@ -61,7 +61,11 @@ pub fn merge_env(
         env.insert(var.key.clone(), var.value.clone());
     }
     if let Some(port) = port {
-        env.insert("PORT".to_string(), port.to_string());
+        // Inject both conventions so the port field actually takes effect:
+        // PORT (Node/Next/Express) and SERVER_PORT (Spring Boot).
+        let value = port.to_string();
+        env.insert("PORT".to_string(), value.clone());
+        env.insert("SERVER_PORT".to_string(), value);
     }
     env
 }
@@ -158,6 +162,7 @@ mod tests {
         assert_eq!(env.get("A").map(String::as_str), Some("from-inline"));
         assert_eq!(env.get("B").map(String::as_str), Some("b"));
         assert_eq!(env.get("PORT").map(String::as_str), Some("8080"));
+        assert_eq!(env.get("SERVER_PORT").map(String::as_str), Some("8080"));
     }
 
     #[test]
@@ -165,6 +170,7 @@ mod tests {
         let inline = vec![EnvVar { key: "PORT".into(), value: "3000".into() }];
         let env = merge_env(&[], &inline, None);
         assert_eq!(env.get("PORT").map(String::as_str), Some("3000"));
+        assert_eq!(env.get("SERVER_PORT"), None); // not injected without a configured port
     }
 
     #[test]
