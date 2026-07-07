@@ -14,7 +14,7 @@ mod ui;
 use eframe::egui;
 use model::ServerConfig;
 use process::running::{RunningProcess, Status};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use ui::editor::{EditorForm, EditorOutcome};
 use ui::log_view::LogView;
@@ -43,6 +43,7 @@ fn main() -> eframe::Result<()> {
 enum Action {
     Start(String),
     Stop(String),
+    Restart(String),
     ClearLogs(String),
     OpenNew,
     OpenEdit(String),
@@ -61,6 +62,8 @@ struct CampfireApp {
     log_view: LogView,
     /// Transient one-line notice (e.g. a port conflict that blocked a start).
     notice: Option<String>,
+    /// Servers awaiting a restart once their current process has terminated.
+    restart_pending: HashSet<String>,
 }
 
 impl CampfireApp {
@@ -79,6 +82,7 @@ impl CampfireApp {
             editor: None,
             log_view: LogView::new(),
             notice: None,
+            restart_pending: HashSet::new(),
         }
     }
 
@@ -111,6 +115,17 @@ impl CampfireApp {
             Action::Stop(id) => {
                 if let Some(proc) = self.running.get_mut(&id) {
                     proc.stop(Duration::from_secs(3));
+                }
+            }
+            Action::Restart(id) => {
+                let active = self.running.get(&id).is_some_and(|p| !p.is_terminal());
+                if active {
+                    if let Some(proc) = self.running.get_mut(&id) {
+                        proc.stop(Duration::from_secs(3));
+                    }
+                    self.restart_pending.insert(id); // relaunched once terminated
+                } else {
+                    self.start_server(&id, ctx);
                 }
             }
             Action::ClearLogs(id) => {
@@ -170,6 +185,22 @@ impl eframe::App for CampfireApp {
         }
         if self.running.values().any(|p| !p.is_terminal()) {
             ui.ctx().request_repaint_after(Duration::from_millis(200));
+        }
+
+        // Complete restarts whose old process has terminated (frees the port).
+        if !self.restart_pending.is_empty() {
+            let ready: Vec<String> = self
+                .restart_pending
+                .iter()
+                .filter(|&id| self.running.get(id).is_none_or(|p| p.is_terminal()))
+                .cloned()
+                .collect();
+            let ctx = ui.ctx().clone();
+            for id in ready {
+                self.restart_pending.remove(&id);
+                self.running.remove(&id);
+                self.start_server(&id, ctx.clone());
+            }
         }
 
         let dup_ports = port::duplicate_config_ports(&self.servers);
@@ -258,6 +289,9 @@ impl eframe::App for CampfireApp {
                 if active {
                     if ui.button("Stop").clicked() {
                         action = Some(Action::Stop(server.id.clone()));
+                    }
+                    if ui.button("Restart").clicked() {
+                        action = Some(Action::Restart(server.id.clone()));
                     }
                 } else if ui.button("Start").clicked() {
                     action = Some(Action::Start(server.id.clone()));
