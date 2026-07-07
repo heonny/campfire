@@ -52,9 +52,10 @@ pub enum StoreError {
     Serialize(#[from] toml::ser::Error),
 }
 
-/// Default path: `<os-config-dir>/campfire/servers.toml`.
+/// Default path: `servers.toml` inside the per-OS config directory for the
+/// `com.heonny.campfire` application (resolved via `directories`).
 pub fn config_path() -> Result<PathBuf, StoreError> {
-    let dirs = directories::ProjectDirs::from("dev", "campfire", "campfire")
+    let dirs = directories::ProjectDirs::from("com", "heonny", "campfire")
         .ok_or(StoreError::NoConfigDir)?;
     Ok(dirs.config_dir().join("servers.toml"))
 }
