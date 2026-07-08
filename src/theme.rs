@@ -26,6 +26,26 @@ pub fn canvas_frame(margin: Margin) -> egui::Frame {
     egui::Frame::new().fill(CANVAS_FILL).inner_margin(margin)
 }
 
+/// Run `show` (a resizable panel) with the panel resize indicator restyled as
+/// a slim accent line. egui draws that indicator with the interactive
+/// `fg_stroke` — near-black and 1.5–2px in the light theme — so this swaps in
+/// the accent and restores the strokes afterwards, since `fg_stroke` doubles
+/// as the hover text color of other widgets.
+pub fn with_accent_resize_indicator<R>(
+    ui: &mut egui::Ui,
+    show: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let widgets = &mut ui.style_mut().visuals.widgets;
+    let saved = (widgets.hovered.fg_stroke, widgets.active.fg_stroke);
+    widgets.hovered.fg_stroke = Stroke::new(1.0, ACCENT);
+    widgets.active.fg_stroke = Stroke::new(1.5, ACCENT);
+    let result = show(ui);
+    let widgets = &mut ui.style_mut().visuals.widgets;
+    widgets.hovered.fg_stroke = saved.0;
+    widgets.active.fg_stroke = saved.1;
+    result
+}
+
 /// A top-level section block (top bar, project list, detail header, log view):
 /// white on the grey canvas, hairline border, one shared radius so every
 /// section reads as the same kind of rounded block.

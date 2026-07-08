@@ -311,6 +311,13 @@ fn reconcile_notice(recovered: usize, stopped: usize) -> Option<String> {
 }
 
 impl eframe::App for CampfireApp {
+    // eframe's default clear color is near-black; a panel resize drag can leave
+    // a sliver of the surface uncovered for a frame, which then flashes black.
+    // Clearing to the canvas color makes any such gap invisible.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        theme::CANVAS_FILL.to_normalized_gamma_f32()
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if self.logo.is_none()
             && let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!(
@@ -420,16 +427,21 @@ impl eframe::App for CampfireApp {
             selected: self.selected.as_deref(),
             metrics: &self.metrics,
         };
-        egui::Panel::left("server_list")
-            .default_size(240.0)
-            .frame(theme::canvas_frame(egui::Margin {
-                left: 12,
-                right: 5,
-                top: 5,
-                bottom: 12,
-            }))
-            .show_separator_line(false)
-            .show(ui, |ui| ui::server_list::show(ui, &view, &mut action));
+        theme::with_accent_resize_indicator(ui, |ui| {
+            egui::Panel::left("server_list")
+                .default_size(240.0)
+                // Keep the sidebar between "cards stay readable" and "the
+                // detail pane keeps room" (the egui default allows 96px).
+                .size_range(180.0..=420.0)
+                .frame(theme::canvas_frame(egui::Margin {
+                    left: 12,
+                    right: 5,
+                    top: 5,
+                    bottom: 12,
+                }))
+                .show_separator_line(false)
+                .show(ui, |ui| ui::server_list::show(ui, &view, &mut action));
+        });
         egui::CentralPanel::default()
             .frame(theme::canvas_frame(egui::Margin {
                 left: 5,

@@ -82,7 +82,9 @@ fn card(
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
             status_dot(ui, status);
-            ui.label(&server.name);
+            // Lay the right-aligned items out first, then give the name the
+            // space that remains, truncated — so a narrow sidebar elides the
+            // name instead of drawing it under the port.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if dup {
                     let warn = ui.visuals().warn_fg_color;
@@ -91,6 +93,9 @@ fn card(
                 if let Some(port) = server.port {
                     ui.weak(format!(":{port}"));
                 }
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(egui::Label::new(&server.name).truncate());
+                });
             });
         });
         metrics_row(ui, metrics);

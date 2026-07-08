@@ -53,16 +53,9 @@ fn header_row(
     action: &mut Option<Action>,
 ) {
     ui.horizontal(|ui| {
-        ui.heading(&server.name);
-        if let Some(port) = server.port {
-            ui.weak(format!(":{port}"));
-        }
-        status_badge(ui, status);
-        if recovered {
-            ui.weak("recovered")
-                .on_hover_text("Running since before this app started — restart for live logs");
-        }
         // Lifecycle controls sit at the right edge; Edit (config) is set apart.
+        // They are laid out first so the name can truncate into what remains
+        // instead of running under them when the pane gets narrow.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if active {
                 if ui
@@ -94,6 +87,18 @@ fn header_row(
             {
                 *action = Some(Action::OpenEdit(server.id.clone()));
             }
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(egui::RichText::new(&server.name).heading()).truncate());
+                if let Some(port) = server.port {
+                    ui.weak(format!(":{port}"));
+                }
+                status_badge(ui, status);
+                if recovered {
+                    ui.weak("recovered").on_hover_text(
+                        "Running since before this app started — restart for live logs",
+                    );
+                }
+            });
         });
     });
 }
