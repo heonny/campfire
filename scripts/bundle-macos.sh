@@ -8,6 +8,9 @@
 # Usage:
 #   ./scripts/bundle-macos.sh                       # uses assets/images/logo-mac.png
 #   ./scripts/bundle-macos.sh path/to/icon.png      # custom source icon
+#   ./scripts/bundle-macos.sh --install             # also copy the .app into /Applications
+#
+# --install may be combined with a custom icon path, in any order.
 #
 # macOS only: relies on sips + iconutil + codesign, all shipped with the OS.
 
@@ -21,7 +24,15 @@ BUNDLE_ID="com.heonny.campfire"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-SRC_ICON="${1:-assets/images/logo-mac.png}"
+# Parse args: --install is a flag; the first non-flag arg is the source icon.
+INSTALL=0
+SRC_ICON="assets/images/logo-mac.png"
+for arg in "$@"; do
+  case "$arg" in
+    --install) INSTALL=1 ;;
+    *) SRC_ICON="$arg" ;;
+  esac
+done
 APP_DIR="target/release/bundle/$APP_NAME.app"
 
 # --- preflight ------------------------------------------------------------
@@ -84,5 +95,14 @@ PLIST
 echo "==> ad-hoc signing"
 codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 \
   || echo "warn: ad-hoc codesign failed (bundle still usable locally)" >&2
+
+# --- 5. optional install into /Applications ------------------------------
+# Replaces any existing install so the copy in /Applications tracks this build.
+if [[ "$INSTALL" == 1 ]]; then
+  DEST="/Applications/$APP_NAME.app"
+  echo "==> installing to $DEST"
+  rm -rf "$DEST"
+  cp -R "$APP_DIR" "$DEST"
+fi
 
 echo "==> done: $APP_DIR"
