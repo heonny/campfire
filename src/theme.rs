@@ -121,6 +121,9 @@ fn build_visuals() -> Visuals {
     visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(0xE1, 0xE1, 0xE0);
     visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0xD8, 0xD8, 0xD7);
 
+    // Separators and panel dividers: a soft hairline, not the default medium grey.
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, CARD_BORDER);
+
     let radius = CornerRadius::same(6);
     for widget in [
         &mut visuals.widgets.noninteractive,

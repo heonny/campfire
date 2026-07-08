@@ -68,12 +68,7 @@ pub fn status_text(status: &Status) -> String {
 // stays consistent. Borderlessness and the hover fill ramp come from the theme
 // (interactive `bg_stroke` is zeroed there); these just pick the content shape.
 
-/// An icon + label button.
-pub fn action_button<'a>(icon: egui::Image<'a>, label: impl Into<egui::WidgetText>) -> egui::Button<'a> {
-    egui::Button::image_and_text(icon, label)
-}
-
-/// An icon-only button (for compact toolbars).
+/// An icon-only button.
 pub fn icon_button<'a>(icon: egui::Image<'a>) -> egui::Button<'a> {
     egui::Button::image(icon)
 }

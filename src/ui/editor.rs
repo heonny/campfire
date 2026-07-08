@@ -6,7 +6,9 @@
 
 use super::{primary_button, text_button, text_input};
 use crate::model::{EnvVar, Preset, ServerConfig};
+use crate::project::{detect_node_project, NodeProject};
 use eframe::egui;
+use std::path::Path;
 use uuid::Uuid;
 
 /// What the user did with the editor this frame.
@@ -31,6 +33,13 @@ pub struct EditorForm {
     env: Vec<(String, String)>,
     shell: String,
     error: Option<String>,
+    /// Detected Node project for the current `cwd` (package manager + scripts),
+    /// refreshed lazily by [`EditorForm::refresh_detection`]. Feeds the Scripts
+    /// picker; never persisted into [`ServerConfig`].
+    detected: Option<NodeProject>,
+    /// The `cwd` value detection last ran for, so `package.json` is re-read only
+    /// when the path actually changes — not on every frame.
+    detected_for: String,
 }
 
 impl EditorForm {
@@ -47,6 +56,8 @@ impl EditorForm {
             env: Vec::new(),
             shell: String::new(),
             error: None,
+            detected: None,
+            detected_for: String::new(),
         }
     }
 
@@ -71,6 +82,8 @@ impl EditorForm {
                 .collect(),
             shell: config.shell.clone().unwrap_or_default(),
             error: None,
+            detected: None,
+            detected_for: String::new(),
         }
     }
 
@@ -80,6 +93,21 @@ impl EditorForm {
         self.preset = preset;
         self.command = preset.default_command().to_string();
         self.port = preset.default_port().map(|p| p.to_string()).unwrap_or_default();
+    }
+
+    /// Re-read `package.json` when `cwd` changed since the last check. Cheap to
+    /// call every frame: the filesystem is touched only when the path differs.
+    fn refresh_detection(&mut self) {
+        if self.cwd.trim() == self.detected_for {
+            return;
+        }
+        let cwd = self.cwd.trim().to_string();
+        self.detected = if cwd.is_empty() {
+            None
+        } else {
+            detect_node_project(Path::new(&cwd))
+        };
+        self.detected_for = cwd;
     }
 
     /// Parse and validate the form into a [`ServerConfig`], or return a
@@ -178,11 +206,11 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
     let mut outcome = EditorOutcome::None;
     ui.set_min_width(460.0);
     ui.heading(if form.editing_id.is_some() {
-        "Edit server"
+        "Edit project"
     } else {
-        "Add server"
+        "Add project"
     });
-    ui.weak("Configure how this server starts and its environment.");
+    ui.weak("Configure how this project runs and its environment.");
     ui.add_space(14.0);
 
     egui::Grid::new("editor_grid")
@@ -208,19 +236,75 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
             ui.end_row();
 
             ui.label("Working dir");
-            ui.horizontal(|ui| {
-                text_input(ui, &mut form.cwd, "", 210.0);
-                if ui.add(text_button("Browse…")).clicked() {
-                    let mut dialog = rfd::FileDialog::new();
-                    if !form.cwd.trim().is_empty() {
-                        dialog = dialog.set_directory(form.cwd.trim());
+            let cwd_focused = ui
+                .horizontal(|ui| {
+                    let resp = text_input(ui, &mut form.cwd, "", 210.0);
+                    if ui.add(text_button("Browse…")).clicked() {
+                        let mut dialog = rfd::FileDialog::new();
+                        if !form.cwd.trim().is_empty() {
+                            dialog = dialog.set_directory(form.cwd.trim());
+                        }
+                        if let Some(path) = dialog.pick_folder() {
+                            form.cwd = path.to_string_lossy().into_owned();
+                            ui.ctx().request_repaint(); // render the Scripts row next frame
+                        }
                     }
-                    if let Some(path) = dialog.pick_folder() {
-                        form.cwd = path.to_string_lossy().into_owned();
-                    }
-                }
-            });
+                    resp.has_focus()
+                })
+                .inner;
             ui.end_row();
+
+            // Detect the project only while the path field isn't being typed in:
+            // reading package.json on every keystroke could stall on a slow mount.
+            // This still fires on open, after Browse, and when the field blurs.
+            if !cwd_focused {
+                form.refresh_detection();
+            }
+
+            // Scripts: shown only when `cwd` holds a Node project. Picking one
+            // fills Command with `<pm> run <script>` and, when Port is still
+            // blank, seeds it from a recognized framework (next/vite).
+            let mut picked: Option<(String, Option<u16>)> = None;
+            if let Some(project) = &form.detected
+                && !project.scripts.is_empty()
+            {
+                ui.label("Scripts");
+                ui.horizontal(|ui| {
+                    // Exact match only: highlights the picked script, but once the
+                    // user hand-edits Command (e.g. appends flags) it intentionally
+                    // falls back to the placeholder rather than guessing.
+                    let current = project
+                        .scripts
+                        .iter()
+                        .find(|(name, _)| form.command == project.manager.run(name))
+                        .map(|(name, _)| name.clone());
+                    egui::ComboBox::from_id_salt("scripts")
+                        .selected_text(
+                            current.clone().unwrap_or_else(|| "Select a script…".to_string()),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (name, raw) in &project.scripts {
+                                let selected = current.as_deref() == Some(name.as_str());
+                                if ui
+                                    .selectable_label(selected, format!("{name}  —  {raw}"))
+                                    .clicked()
+                                {
+                                    picked = Some((project.manager.run(name), project.port_hint));
+                                }
+                            }
+                        });
+                    ui.weak(format!("via {}", project.manager.as_str()));
+                });
+                ui.end_row();
+            }
+            if let Some((command, port_hint)) = picked {
+                form.command = command;
+                if form.port.trim().is_empty()
+                    && let Some(port) = port_hint
+                {
+                    form.port = port.to_string();
+                }
+            }
 
             ui.label("Command");
             text_input(ui, &mut form.command, "npm run dev", 280.0);
@@ -327,6 +411,8 @@ mod tests {
             env: Vec::new(),
             shell: String::new(),
             error: None,
+            detected: None,
+            detected_for: String::new(),
         }
     }
 

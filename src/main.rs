@@ -9,6 +9,7 @@ mod metrics;
 mod model;
 mod port;
 mod process;
+mod project;
 mod store;
 mod theme;
 mod ui;
@@ -235,14 +236,15 @@ impl eframe::App for CampfireApp {
                 ui.separator();
                 let active = self.running.values().filter(|p| !p.is_terminal()).count();
                 ui.label(format!("running {active}/{}", self.servers.len()));
-                if ui.add(ui::action_button(ui::icons::help(), "Help")).clicked() {
-                    action = Some(Action::OpenHelp);
-                }
-                if let Some(notice) = &self.notice {
-                    ui.separator();
-                    let warn = ui.visuals().warn_fg_color;
-                    ui.colored_label(warn, notice);
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(ui::icon_button(ui::icons::help())).on_hover_text("Help").clicked() {
+                        action = Some(Action::OpenHelp);
+                    }
+                    if let Some(notice) = &self.notice {
+                        let warn = ui.visuals().warn_fg_color;
+                        ui.colored_label(warn, notice);
+                    }
+                });
             });
         });
 

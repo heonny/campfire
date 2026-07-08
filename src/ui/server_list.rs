@@ -1,7 +1,7 @@
 //! The left panel: an Add button and the list of servers, each rendered as a
 //! clickable card with a status dot, name, port, and a duplicate-port marker.
 
-use super::{action_button, icons, status_dot, Action, View};
+use super::{icon_button, icons, status_dot, Action, View};
 use crate::model::ServerConfig;
 use crate::process::running::Status;
 use crate::theme;
@@ -9,15 +9,17 @@ use eframe::egui;
 
 pub fn show(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
     ui.horizontal(|ui| {
-        ui.heading("Servers");
-        if ui.add(action_button(icons::add(), "Add")).clicked() {
-            *action = Some(Action::OpenNew);
-        }
+        ui.heading("Projects");
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.add(icon_button(icons::add())).on_hover_text("Add project").clicked() {
+                *action = Some(Action::OpenNew);
+            }
+        });
     });
     ui.add_space(8.0);
 
     if view.servers.is_empty() {
-        ui.weak("(등록된 서버 없음)");
+        ui.weak("등록된 프로젝트가 없습니다");
         return;
     }
 

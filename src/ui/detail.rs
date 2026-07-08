@@ -1,7 +1,7 @@
 //! The central panel: the selected server's header card (status, port, actions,
 //! CPU/memory, port-conflict warnings, command) and the log view below it.
 
-use super::{action_button, icons, status_color, status_text, Action, View};
+use super::{icon_button, icons, status_color, status_text, Action, View};
 use crate::model::ServerConfig;
 use crate::process::running::{RunningProcess, Status};
 use crate::theme;
@@ -14,7 +14,7 @@ pub fn show(ui: &mut egui::Ui, view: &View, log_view_state: &mut LogView, action
         .and_then(|id| view.servers.iter().find(|s| s.id == id));
     let Some(server) = selected else {
         ui.centered_and_justified(|ui| {
-            ui.weak("좌측에서 서버를 선택하거나 + Add로 추가하세요");
+            ui.weak("좌측에서 프로젝트를 선택하거나 + 로 추가하세요");
         });
         return;
     };
@@ -49,19 +49,21 @@ fn header_row(
             ui.weak(format!(":{port}"));
         }
         status_badge(ui, status);
+        // Lifecycle controls sit at the right edge; Edit (config) is set apart.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add(action_button(icons::edit(), "Edit")).clicked() {
-                *action = Some(Action::OpenEdit(server.id.clone()));
-            }
             if active {
-                if ui.add(action_button(icons::restart(), "Restart")).clicked() {
-                    *action = Some(Action::Restart(server.id.clone()));
-                }
-                if ui.add(action_button(icons::stop(), "Stop")).clicked() {
+                if ui.add(icon_button(icons::stop())).on_hover_text("Stop").clicked() {
                     *action = Some(Action::Stop(server.id.clone()));
                 }
-            } else if ui.add(action_button(icons::start(), "Start")).clicked() {
+                if ui.add(icon_button(icons::restart())).on_hover_text("Restart").clicked() {
+                    *action = Some(Action::Restart(server.id.clone()));
+                }
+            } else if ui.add(icon_button(icons::start())).on_hover_text("Start").clicked() {
                 *action = Some(Action::Start(server.id.clone()));
+            }
+            ui.add_space(6.0);
+            if ui.add(icon_button(icons::edit())).on_hover_text("Edit").clicked() {
+                *action = Some(Action::OpenEdit(server.id.clone()));
             }
         });
     });
