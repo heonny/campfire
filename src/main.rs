@@ -5,6 +5,7 @@
 //! lives in the `ui` module; this file owns state and applies actions.
 
 mod ansi;
+mod fs_util;
 mod metrics;
 mod model;
 mod port;
@@ -16,20 +17,28 @@ mod ui;
 
 use eframe::egui;
 use model::ServerConfig;
+use process::kill_tree;
 use process::running::RunningProcess;
+use process::runtime_state::{self, RuntimeEntry};
+use process::shutdown;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::Duration;
 use ui::editor::{EditorForm, EditorOutcome};
 use ui::log_view::LogView;
 use ui::Action;
 
 fn main() -> eframe::Result<()> {
+    // Relay signal-based termination (SIGTERM/SIGINT/…) to our server groups,
+    // since a signal skips the Drop that normally kills them on window close.
+    shutdown::install_handler();
+
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Campfire")
         .with_inner_size([1024.0, 640.0])
         .with_min_inner_size([720.0, 480.0]);
     if let Ok(icon) =
-        eframe::icon_data::from_png_bytes(include_bytes!("../assets/images/icon-256.png"))
+        eframe::icon_data::from_png_bytes(include_bytes!("../assets/images/logo-mac.png"))
     {
         viewport = viewport.with_icon(icon);
     }
@@ -41,7 +50,7 @@ fn main() -> eframe::Result<()> {
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             theme::setup(&cc.egui_ctx);
-            Ok(Box::new(CampfireApp::new()))
+            Ok(Box::new(CampfireApp::new(cc.egui_ctx.clone())))
         }),
     )
 }
@@ -67,10 +76,15 @@ struct CampfireApp {
     show_help: bool,
     /// Lazily-loaded top-bar logo texture.
     logo: Option<egui::TextureHandle>,
+    /// Servers currently running, mirrored to disk so a force-killed instance
+    /// can reconcile orphaned processes on the next launch. Keyed by server id.
+    runtime: HashMap<String, RuntimeEntry>,
+    /// Cached path of the runtime-state file (`running.json`), if resolvable.
+    runtime_path: Option<PathBuf>,
 }
 
 impl CampfireApp {
-    fn new() -> Self {
+    fn new(ctx: egui::Context) -> Self {
         let servers = match store::load() {
             Ok(doc) => doc.servers,
             Err(err) => {
@@ -78,17 +92,53 @@ impl CampfireApp {
                 Vec::new()
             }
         };
+
+        // Reconcile processes a previous instance left running without getting to
+        // run Drop (force-kill / crash). A server whose config still exists is
+        // adopted as a recovered "running" card (stop/restart, but no live logs);
+        // one whose config was deleted is simply stopped to free its port.
+        let runtime_path = runtime_state::state_path();
+        let mut running: HashMap<String, RunningProcess> = HashMap::new();
+        let mut runtime: HashMap<String, RuntimeEntry> = HashMap::new();
+        let mut notice = None;
+
+        if let Some(path) = &runtime_path {
+            let orphans = runtime_state::confirmed_orphans(&runtime_state::load_from(path));
+            let mut stopped = 0usize;
+            for entry in orphans {
+                if servers.iter().any(|s| s.id == entry.server_id) {
+                    let ctx = ctx.clone();
+                    let proc = RunningProcess::adopt(&entry, move || ctx.request_repaint());
+                    shutdown::register(entry.pid);
+                    running.insert(entry.server_id.clone(), proc);
+                    runtime.insert(entry.server_id.clone(), entry);
+                } else {
+                    // Config was deleted, so the user wants this gone: SIGKILL
+                    // frees the port for certain (no grace is owed, and a trapped
+                    // SIGTERM would leak it) — and a dead PID needs no re-tracking.
+                    kill_tree::tree_kill(entry.pid, kill_tree::Signal::Kill);
+                    stopped += 1;
+                }
+            }
+            // Persist the reconciled set: adopted entries kept, stopped ones gone.
+            let entries: Vec<RuntimeEntry> = runtime.values().cloned().collect();
+            let _ = runtime_state::save_to(path, &entries);
+            notice = reconcile_notice(running.len(), stopped);
+        }
+
         Self {
             servers,
             selected: None,
-            running: HashMap::new(),
+            running,
             editor: None,
             log_view: LogView::new(),
-            notice: None,
+            notice,
             restart_pending: HashSet::new(),
             metrics: metrics::Metrics::new(),
             show_help: false,
             logo: None,
+            runtime,
+            runtime_path,
         }
     }
 
@@ -107,6 +157,7 @@ impl CampfireApp {
         match RunningProcess::spawn(&server, wake) {
             Ok(proc) => {
                 self.notice = None;
+                self.track_running(&server, proc.pid());
                 self.running.insert(server.id, proc);
             }
             Err(err) => {
@@ -164,6 +215,7 @@ impl CampfireApp {
             }
             EditorOutcome::Delete(id) => {
                 self.running.remove(&id); // dropped -> Drop force-kills the group
+                self.untrack_running(&id); // clear runtime + signal registry now
                 self.servers.retain(|s| s.id != id);
                 if self.selected.as_deref() == Some(id.as_str()) {
                     self.selected = None;
@@ -182,6 +234,67 @@ impl CampfireApp {
         if let Err(err) = store::save(&doc) {
             self.notice = Some(format!("Failed to save config: {err}"));
         }
+    }
+
+    /// Record a freshly-spawned server in the runtime state (and persist it), so
+    /// it can be recovered if this instance is force-killed. Skips recording if
+    /// the process vanished before we could read its start time.
+    fn track_running(&mut self, server: &ServerConfig, pid: u32) {
+        let Some(start_time) = runtime_state::process_start_time(pid) else {
+            // The process exited before we could read its start time (e.g. a
+            // command that fails instantly). Nothing to recover; poll() will
+            // still surface it as terminal in the UI.
+            eprintln!("campfire: '{}' exited before it could be tracked", server.name);
+            return;
+        };
+        self.runtime.insert(
+            server.id.clone(),
+            RuntimeEntry {
+                server_id: server.id.clone(),
+                name: server.name.clone(),
+                pid,
+                start_time,
+                port: server.port,
+            },
+        );
+        shutdown::register(pid);
+        self.persist_runtime();
+    }
+
+    /// Drop a server from the runtime state (and persist) once its process has
+    /// ended — it is no longer an orphan to recover.
+    fn untrack_running(&mut self, id: &str) {
+        if let Some(entry) = self.runtime.remove(id) {
+            shutdown::unregister(entry.pid);
+            self.persist_runtime();
+        }
+    }
+
+    /// Rewrite `running.json` from the current in-memory set. Best-effort: a
+    /// failure only risks a stale reconcile next launch, so it is logged, not
+    /// surfaced as a user-facing error.
+    fn persist_runtime(&self) {
+        let Some(path) = &self.runtime_path else {
+            return;
+        };
+        let entries: Vec<RuntimeEntry> = self.runtime.values().cloned().collect();
+        if let Err(err) = runtime_state::save_to(path, &entries) {
+            eprintln!("campfire: could not persist runtime state ({err})");
+        }
+    }
+}
+
+/// One-line summary of what startup reconcile did, or `None` if nothing was
+/// recovered or stopped. `recovered` orphans became running cards; `stopped`
+/// ones (whose config was gone) were killed to free their ports.
+fn reconcile_notice(recovered: usize, stopped: usize) -> Option<String> {
+    match (recovered, stopped) {
+        (0, 0) => None,
+        (r, 0) => Some(format!("Recovered {r} running server(s) from a previous session.")),
+        (0, s) => Some(format!("Stopped {s} orphaned server(s) from a previous session.")),
+        (r, s) => Some(format!(
+            "Recovered {r} running server(s) and stopped {s} orphan(s) from a previous session."
+        )),
     }
 }
 
@@ -203,6 +316,21 @@ impl eframe::App for CampfireApp {
         for proc in self.running.values_mut() {
             proc.poll();
         }
+
+        // Keep the persisted runtime state accurate: drop entries whose process
+        // has ended, so the orphan set recovered next launch stays correct.
+        if !self.runtime.is_empty() {
+            let ended: Vec<String> = self
+                .runtime
+                .keys()
+                .filter(|id| self.running.get(*id).is_none_or(|p| p.is_terminal()))
+                .cloned()
+                .collect();
+            for id in ended {
+                self.untrack_running(&id);
+            }
+        }
+
         self.metrics.refresh(&self.running);
         if self.running.values().any(|p| !p.is_terminal()) {
             ui.ctx().request_repaint_after(Duration::from_millis(200));

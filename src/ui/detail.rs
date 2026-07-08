@@ -22,16 +22,17 @@ pub fn show(ui: &mut egui::Ui, view: &View, log_view_state: &mut LogView, action
     let proc = view.running.get(&server.id);
     let status = proc.map(|p| p.status().clone()).unwrap_or(Status::Stopped);
     let active = proc.map(|p| !p.is_terminal()).unwrap_or(false);
+    let recovered = proc.map(|p| p.is_recovered()).unwrap_or(false);
 
     theme::card_frame().show(ui, |ui| {
         ui.set_width(ui.available_width());
-        header_row(ui, server, &status, active, action);
+        header_row(ui, server, &status, active, recovered, action);
         meta_rows(ui, view, server, active);
         command_block(ui, server);
     });
 
     ui.add_space(8.0);
-    log_section(ui, server, proc, log_view_state, action);
+    log_section(ui, server, proc, recovered, log_view_state, action);
 }
 
 /// The top row of the header card: status dot, name, port, status text, and the
@@ -41,6 +42,7 @@ fn header_row(
     server: &ServerConfig,
     status: &Status,
     active: bool,
+    recovered: bool,
     action: &mut Option<Action>,
 ) {
     ui.horizontal(|ui| {
@@ -49,6 +51,10 @@ fn header_row(
             ui.weak(format!(":{port}"));
         }
         status_badge(ui, status);
+        if recovered {
+            ui.weak("recovered")
+                .on_hover_text("Running since before this app started — restart for live logs");
+        }
         // Lifecycle controls sit at the right edge; Edit (config) is set apart.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if active {
@@ -118,6 +124,7 @@ fn log_section(
     ui: &mut egui::Ui,
     server: &ServerConfig,
     proc: Option<&RunningProcess>,
+    recovered: bool,
     log_view_state: &mut LogView,
     action: &mut Option<Action>,
 ) {
@@ -127,7 +134,17 @@ fn log_section(
                 .fill(egui::Color32::WHITE)
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    log_view::show(ui, log_view_state, proc.logs())
+                    // An adopted process has no live pipe, so there is nothing to
+                    // stream or clear — explain that instead of showing an empty log.
+                    if recovered {
+                        ui.weak(
+                            "Recovered from a previous session — live logs aren't available. \
+                             Restart to stream logs.",
+                        );
+                        false
+                    } else {
+                        log_view::show(ui, log_view_state, proc.logs())
+                    }
                 })
                 .inner;
             if clear {

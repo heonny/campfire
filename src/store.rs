@@ -69,28 +69,13 @@ pub fn load_from(path: &Path) -> Result<ConfigDoc, StoreError> {
     }
 }
 
-/// Save a document to an explicit path, creating parent directories. Writes to
-/// a temporary file and renames it into place, so a crash mid-write cannot
-/// leave a half-written (corrupt) config.
-///
-/// On Windows, `fs::rename` replaces the destination atomically only when it is
-/// not held open with a share mode that forbids replace. Campfire never keeps
-/// `servers.toml` open across calls, so this is safe today; a future hot-reload
-/// feature holding a read handle would need to account for it.
+/// Save a document to an explicit path. Serializes to TOML and writes it
+/// atomically (temp file + rename) via [`crate::fs_util::write_atomic`], so a
+/// crash mid-write cannot leave a half-written (corrupt) config.
 pub fn save_to(path: &Path, doc: &ConfigDoc) -> Result<(), StoreError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|source| StoreError::Io { path: parent.to_path_buf(), source })?;
-    }
     let text = toml::to_string_pretty(doc)?;
-    // Unique temp name per process so two concurrent writers can't clobber
-    // each other's in-progress file before either rename completes.
-    let tmp = path.with_extension(format!("toml.tmp.{}", std::process::id()));
-    std::fs::write(&tmp, text.as_bytes())
-        .map_err(|source| StoreError::Io { path: tmp.clone(), source })?;
-    std::fs::rename(&tmp, path)
-        .map_err(|source| StoreError::Io { path: path.to_path_buf(), source })?;
-    Ok(())
+    crate::fs_util::write_atomic(path, text.as_bytes())
+        .map_err(|source| StoreError::Io { path: path.to_path_buf(), source })
 }
 
 /// Load from the default OS config location.

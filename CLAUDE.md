@@ -15,6 +15,8 @@ cargo test                    # all unit tests
 cargo test to_job_highlights  # run a single test by name substring
 cargo clippy --all-targets    # lint; keep clean before committing
 cargo fmt                     # format
+
+./scripts/bundle-macos.sh     # macOS: build Campfire.app (+ generated .icns) -> target/release/bundle
 ```
 
 Rust edition 2024; `egui`/`eframe` are pinned at 0.35.
@@ -28,8 +30,12 @@ The entry point is `eframe::App::ui(&mut Ui, ..)` — egui 0.35, **not** the old
 
 ### Process lifecycle — `src/process/`
 - `command.rs` builds the real invocation: it wraps the user's command string in a login shell (`$SHELL -lc` on unix, `cmd /C` on windows; a per-server `shell` override exists for version managers like nvm) and layers the environment — explicit env vars, then a `.env` file, then injected `PORT` **and** `SERVER_PORT` (Spring Boot reads `SERVER_PORT`, Node reads `PORT`, so both are set).
-- `running.rs` — `RunningProcess` spawns through `command-group` so the whole process **group** can be tree-killed. stdout/stderr are read on threads into an mpsc channel and drained non-blockingly by `poll()` each frame. Stop is graceful: SIGTERM → 3 s grace → SIGKILL on the group. `Drop` force-kills the group, so closing the app also stops its servers — which is why the release profile keeps unwinding (**no `panic = "abort"`**): abort would skip `Drop` and orphan child processes.
+- `running.rs` — `RunningProcess` spawns through `command-group` so the whole process **group** can be tree-killed. stdout/stderr are read on threads into an mpsc channel and drained non-blockingly by `poll()` each frame. Stop is graceful: SIGTERM → 3 s grace → SIGKILL on the group. `Drop` force-kills the group, so closing the app also stops its servers — which is why the release profile keeps unwinding (**no `panic = "abort"`**): abort would skip `Drop` and orphan child processes. A `RunningProcess` is either **Owned** (spawned here, with live log pipes) or **Adopted** (recovered from a previous session by PID — stop/restart work, but there are no live logs); the public API is identical, so the UI is agnostic.
 - `log_buffer.rs` — a byte-capped 5 MiB ring buffer.
+- Orphan safety net (two layers, because `Drop` only runs on a clean close, not on SIGKILL/crash/power-loss):
+  - `runtime_state.rs` — persists the running set to `running.json` in the OS data dir on every start/stop. On launch, a recorded PID that is still alive **and** whose `start_time` matches (guards against PID reuse) is a confirmed orphan: it is **adopted** if its config still exists, or stopped to free its port if the config was deleted.
+  - `kill_tree.rs` — terminate a group / probe liveness by **PID alone**, without the `GroupChild` handle (Unix `killpg`, since command-group makes PGID == PID; Windows walks the `sysinfo` subtree). Reaps orphans whose handle died with a previous instance.
+  - `shutdown.rs` — a SIGTERM/SIGINT/SIGHUP (and Windows console-close) handler that relays termination to the tracked groups before exiting, since a signal skips `Drop`. Uncatchable signals (SIGKILL) fall through to the next-launch reconcile above.
 
 ### Rendering and theme — `src/theme.rs`, `src/ui/`
 - `theme.rs` installs light `Visuals`, the bundled Pretendard font (covers Latin + Hangul; egui's default fonts have no CJK), frame helpers (`card_frame` / `modal_frame` / `inset_frame`), and the palette.
