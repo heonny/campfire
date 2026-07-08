@@ -53,7 +53,16 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                 ui,
                 "Where config is stored",
                 "Servers are saved to your OS app-config directory under \
-                 com.heonny.campfire/servers.toml.",
+                 com.heonny.campfire/servers.toml; running-state lives next to \
+                 it in running.json.",
+            );
+            section(
+                ui,
+                "Uninstall",
+                "Removing the app leaves those two files behind. To wipe them, \
+                 run scripts/uninstall-macos.sh (or uninstall-windows.ps1), or \
+                 delete Campfire's saved-data folder(s) by hand — the README \
+                 lists the exact path per OS.",
             );
         });
 

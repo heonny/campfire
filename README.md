@@ -65,6 +65,31 @@ The in-app **Help** button has the rest. A few notes:
 - **Config** — servers are saved under your OS app-config directory
   (`com.heonny.campfire/servers.toml`).
 
+## Uninstall
+
+Campfire keeps only two files — your server list (`servers.toml`) and its
+running-state (`running.json`). Deleting the app leaves them behind; remove them
+too for a clean uninstall.
+
+| OS | Where they live |
+|---|---|
+| macOS | `~/Library/Application Support/com.heonny.campfire/` |
+| Windows | `%APPDATA%\heonny\campfire\` and `%LOCALAPPDATA%\heonny\campfire\` |
+
+The matching script clears them for you. It prints the paths and asks first;
+pass `--yes` (macOS) or `-Yes` (Windows) to skip the prompt.
+
+```sh
+# macOS
+./scripts/uninstall-macos.sh
+
+# Windows (PowerShell)
+.\scripts\uninstall-windows.ps1
+```
+
+Then remove the app itself: move **Campfire.app** to the Trash (macOS) or delete
+the `campfire` binary (Windows). The scripts never touch the app — only its data.
+
 ## Built with
 
 Rust · [egui / eframe](https://github.com/emilk/egui) · egui_extras · command-group ·
