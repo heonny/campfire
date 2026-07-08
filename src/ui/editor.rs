@@ -6,7 +6,7 @@
 
 use super::{primary_button, text_button, text_input};
 use crate::model::{EnvVar, Preset, ServerConfig};
-use crate::project::{detect_node_project, NodeProject};
+use crate::project::{NodeProject, detect_node_project};
 use eframe::egui;
 use std::path::Path;
 use uuid::Uuid;
@@ -92,7 +92,10 @@ impl EditorForm {
     fn apply_preset(&mut self, preset: Preset) {
         self.preset = preset;
         self.command = preset.default_command().to_string();
-        self.port = preset.default_port().map(|p| p.to_string()).unwrap_or_default();
+        self.port = preset
+            .default_port()
+            .map(|p| p.to_string())
+            .unwrap_or_default();
     }
 
     /// Re-read `package.json` when `cwd` changed since the last check. Cheap to
@@ -129,7 +132,9 @@ impl EditorForm {
             "" => None,
             text => match text.parse::<u16>() {
                 Ok(0) | Err(_) => {
-                    return Err(format!("Port '{text}' must be a number between 1 and 65535."));
+                    return Err(format!(
+                        "Port '{text}' must be a number between 1 and 65535."
+                    ));
                 }
                 Ok(port) => Some(port),
             },
@@ -138,13 +143,19 @@ impl EditorForm {
             .env
             .iter()
             .filter(|(key, _)| !key.trim().is_empty())
-            .map(|(key, value)| EnvVar { key: key.trim().to_string(), value: value.clone() })
+            .map(|(key, value)| EnvVar {
+                key: key.trim().to_string(),
+                value: value.clone(),
+            })
             .collect();
         let env_file = non_empty(&self.env_file).map(Into::into);
         let shell = non_empty(&self.shell);
 
         Ok(ServerConfig {
-            id: self.editing_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
+            id: self
+                .editing_id
+                .clone()
+                .unwrap_or_else(|| Uuid::new_v4().to_string()),
             name: name.to_string(),
             preset: self.preset,
             cwd: cwd.into(),
@@ -280,7 +291,9 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
                         .map(|(name, _)| name.clone());
                     egui::ComboBox::from_id_salt("scripts")
                         .selected_text(
-                            current.clone().unwrap_or_else(|| "Select a script…".to_string()),
+                            current
+                                .clone()
+                                .unwrap_or_else(|| "Select a script…".to_string()),
                         )
                         .show_ui(ui, |ui| {
                             for (name, raw) in &project.scripts {
@@ -359,7 +372,9 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
     section_label(ui, "Command preview");
     crate::theme::inset_frame().show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.add(egui::Label::new(egui::RichText::new(form.preview()).monospace()));
+        ui.add(egui::Label::new(
+            egui::RichText::new(form.preview()).monospace(),
+        ));
     });
 
     if let Some(error) = &form.error {
@@ -367,14 +382,11 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
         ui.colored_label(ui.visuals().error_fg_color, error);
     }
 
-    ui.add_space(18.0);
-    ui.separator();
-    ui.add_space(10.0);
+    ui.add_space(20.0);
     ui.horizontal(|ui| {
         if let Some(id) = &form.editing_id {
-            let delete = egui::Button::new(
-                egui::RichText::new("Delete").color(ui.visuals().error_fg_color),
-            );
+            let delete =
+                egui::Button::new(egui::RichText::new("Delete").color(ui.visuals().error_fg_color));
             if ui.add(delete).clicked() {
                 outcome = EditorOutcome::Delete(id.clone());
             }

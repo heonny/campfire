@@ -2,7 +2,7 @@
 //! so the app reads as a clean dev tool rather than raw egui defaults.
 
 use eframe::egui;
-use egui::{vec2, Color32, CornerRadius, Margin, Stroke, Visuals};
+use egui::{Color32, CornerRadius, Margin, Stroke, Visuals, vec2};
 
 /// Campfire accent — a warm ember orange — and its pale selection tint.
 pub const ACCENT: Color32 = Color32::from_rgb(0xC2, 0x41, 0x0C);
@@ -15,6 +15,27 @@ pub const CARD_FILL: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF2);
 pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE3, 0xE3, 0xE2);
 pub const CARD_HOVER_FILL: Color32 = Color32::from_rgb(0xEB, 0xEB, 0xEA);
 pub const INSET_FILL: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xE8);
+
+/// The app canvas: a warm grey that the white section blocks float on.
+/// Sections separate by surface contrast, not divider lines.
+pub const CANVAS_FILL: Color32 = Color32::from_rgb(0xF0, 0xEF, 0xEB);
+
+/// A panel frame that only paints the canvas: no chrome, just the grey fill
+/// and the given margin (the gap around the section blocks inside).
+pub fn canvas_frame(margin: Margin) -> egui::Frame {
+    egui::Frame::new().fill(CANVAS_FILL).inner_margin(margin)
+}
+
+/// A top-level section block (top bar, project list, detail header, log view):
+/// white on the grey canvas, hairline border, one shared radius so every
+/// section reads as the same kind of rounded block.
+pub fn block_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(Color32::WHITE)
+        .stroke(Stroke::new(1.0, CARD_BORDER))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::same(12))
+}
 
 /// A recessed inset surface for code / command text (a touch darker than the
 /// card, hairline border, rounded, snug padding).
@@ -94,8 +115,8 @@ fn install_visuals(ctx: &egui::Context) {
 fn build_visuals() -> Visuals {
     let mut visuals = Visuals::light();
 
-    // App background — the Claude Code near-white; cards sit slightly darker on top.
-    visuals.panel_fill = Color32::from_rgb(0xFD, 0xFD, 0xFC);
+    // App background — the warm grey canvas; white section blocks sit on top.
+    visuals.panel_fill = CANVAS_FILL;
     visuals.window_fill = Color32::WHITE;
     visuals.faint_bg_color = Color32::from_rgb(0xF2, 0xF1, 0xEE);
     visuals.extreme_bg_color = Color32::WHITE;

@@ -7,7 +7,7 @@ use eframe::egui;
 pub fn show(ui: &mut egui::Ui) -> bool {
     ui.set_max_width(560.0);
     ui.heading("Campfire — help");
-    ui.separator();
+    ui.add_space(4.0);
 
     egui::ScrollArea::vertical()
         .max_height(440.0)

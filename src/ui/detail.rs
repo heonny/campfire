@@ -1,20 +1,27 @@
 //! The central panel: the selected server's header card (status, port, actions,
-//! CPU/memory, port-conflict warnings, command) and the log view below it.
+//! port-conflict warnings, command) and the log view below it.
 
-use super::{icon_button, icons, status_color, status_text, Action, View};
+use super::{Action, View, icon_button, icons, status_color, status_text};
 use crate::model::ServerConfig;
 use crate::process::running::{RunningProcess, Status};
 use crate::theme;
 use crate::ui::log_view::{self, LogView};
 use eframe::egui;
 
-pub fn show(ui: &mut egui::Ui, view: &View, log_view_state: &mut LogView, action: &mut Option<Action>) {
+pub fn show(
+    ui: &mut egui::Ui,
+    view: &View,
+    log_view_state: &mut LogView,
+    action: &mut Option<Action>,
+) {
     let selected = view
         .selected
         .and_then(|id| view.servers.iter().find(|s| s.id == id));
     let Some(server) = selected else {
-        ui.centered_and_justified(|ui| {
-            ui.weak("좌측에서 프로젝트를 선택하거나 + 로 추가하세요");
+        theme::block_frame().show(ui, |ui| {
+            ui.centered_and_justified(|ui| {
+                ui.weak("좌측에서 프로젝트를 선택하거나 + 로 추가하세요");
+            });
         });
         return;
     };
@@ -24,14 +31,14 @@ pub fn show(ui: &mut egui::Ui, view: &View, log_view_state: &mut LogView, action
     let active = proc.map(|p| !p.is_terminal()).unwrap_or(false);
     let recovered = proc.map(|p| p.is_recovered()).unwrap_or(false);
 
-    theme::card_frame().show(ui, |ui| {
+    theme::block_frame().show(ui, |ui| {
         ui.set_width(ui.available_width());
         header_row(ui, server, &status, active, recovered, action);
-        meta_rows(ui, view, server, active);
+        port_warnings(ui, view, server, active);
         command_block(ui, server);
     });
 
-    ui.add_space(8.0);
+    ui.add_space(10.0);
     log_section(ui, server, proc, recovered, log_view_state, action);
 }
 
@@ -58,17 +65,33 @@ fn header_row(
         // Lifecycle controls sit at the right edge; Edit (config) is set apart.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if active {
-                if ui.add(icon_button(icons::stop())).on_hover_text("Stop").clicked() {
+                if ui
+                    .add(icon_button(icons::stop()))
+                    .on_hover_text("Stop")
+                    .clicked()
+                {
                     *action = Some(Action::Stop(server.id.clone()));
                 }
-                if ui.add(icon_button(icons::restart())).on_hover_text("Restart").clicked() {
+                if ui
+                    .add(icon_button(icons::restart()))
+                    .on_hover_text("Restart")
+                    .clicked()
+                {
                     *action = Some(Action::Restart(server.id.clone()));
                 }
-            } else if ui.add(icon_button(icons::start())).on_hover_text("Start").clicked() {
+            } else if ui
+                .add(icon_button(icons::start()))
+                .on_hover_text("Start")
+                .clicked()
+            {
                 *action = Some(Action::Start(server.id.clone()));
             }
             ui.add_space(6.0);
-            if ui.add(icon_button(icons::edit())).on_hover_text("Edit").clicked() {
+            if ui
+                .add(icon_button(icons::edit()))
+                .on_hover_text("Edit")
+                .clicked()
+            {
                 *action = Some(Action::OpenEdit(server.id.clone()));
             }
         });
@@ -84,19 +107,16 @@ fn status_badge(ui: &mut egui::Ui, status: &Status) {
         .corner_radius(egui::CornerRadius::same(9))
         .inner_margin(egui::Margin::symmetric(8, 2))
         .show(ui, |ui| {
-            ui.label(egui::RichText::new(status_text(status)).color(color).small());
+            ui.label(
+                egui::RichText::new(status_text(status))
+                    .color(color)
+                    .small(),
+            );
         });
 }
 
-/// CPU/memory (when running) and any port-conflict warnings.
-fn meta_rows(ui: &mut egui::Ui, view: &View, server: &ServerConfig, active: bool) {
-    if active
-        && let Some((cpu, mem)) = view.metrics.get(&server.id)
-    {
-        let mem_mb = mem as f64 / 1_048_576.0;
-        ui.weak(format!("CPU {cpu:.0}%   ·   {mem_mb:.0} MB"));
-    }
-
+/// Any port-conflict warnings. (CPU/memory lives on the sidebar cards.)
+fn port_warnings(ui: &mut egui::Ui, view: &View, server: &ServerConfig, active: bool) {
     if let Some(assigned) = server.port {
         let warn = ui.visuals().warn_fg_color;
         if view.dup_ports.contains(&assigned) {
@@ -130,10 +150,10 @@ fn log_section(
 ) {
     match proc {
         Some(proc) => {
-            let clear = theme::card_frame()
-                .fill(egui::Color32::WHITE)
+            let clear = theme::block_frame()
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
+                    ui.set_min_height(ui.available_height());
                     // An adopted process has no live pipe, so there is nothing to
                     // stream or clear — explain that instead of showing an empty log.
                     if recovered {
@@ -152,7 +172,11 @@ fn log_section(
             }
         }
         None => {
-            ui.weak("no output yet");
+            theme::block_frame().show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.set_min_height(ui.available_height());
+                ui.weak("no output yet");
+            });
         }
     }
 }

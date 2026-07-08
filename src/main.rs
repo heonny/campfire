@@ -24,9 +24,9 @@ use process::shutdown;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
+use ui::Action;
 use ui::editor::{EditorForm, EditorOutcome};
 use ui::log_view::LogView;
-use ui::Action;
 
 fn main() -> eframe::Result<()> {
     // Relay signal-based termination (SIGTERM/SIGINT/…) to our server groups,
@@ -42,7 +42,10 @@ fn main() -> eframe::Result<()> {
     {
         viewport = viewport.with_icon(icon);
     }
-    let options = eframe::NativeOptions { viewport, ..Default::default() };
+    let options = eframe::NativeOptions {
+        viewport,
+        ..Default::default()
+    };
 
     eframe::run_native(
         "Campfire",
@@ -149,8 +152,10 @@ impl CampfireApp {
         if let Some(port) = server.port
             && !port::is_port_free(port)
         {
-            self.notice =
-                Some(format!("Can't start '{}': port {port} is already in use.", server.name));
+            self.notice = Some(format!(
+                "Can't start '{}': port {port} is already in use.",
+                server.name
+            ));
             return;
         }
         let wake = move || ctx.request_repaint();
@@ -244,7 +249,10 @@ impl CampfireApp {
             // The process exited before we could read its start time (e.g. a
             // command that fails instantly). Nothing to recover; poll() will
             // still surface it as terminal in the UI.
-            eprintln!("campfire: '{}' exited before it could be tracked", server.name);
+            eprintln!(
+                "campfire: '{}' exited before it could be tracked",
+                server.name
+            );
             return;
         };
         self.runtime.insert(
@@ -290,8 +298,12 @@ impl CampfireApp {
 fn reconcile_notice(recovered: usize, stopped: usize) -> Option<String> {
     match (recovered, stopped) {
         (0, 0) => None,
-        (r, 0) => Some(format!("Recovered {r} running server(s) from a previous session.")),
-        (0, s) => Some(format!("Stopped {s} orphaned server(s) from a previous session.")),
+        (r, 0) => Some(format!(
+            "Recovered {r} running server(s) from a previous session."
+        )),
+        (0, s) => Some(format!(
+            "Stopped {s} orphaned server(s) from a previous session."
+        )),
         (r, s) => Some(format!(
             "Recovered {r} running server(s) and stopped {s} orphan(s) from a previous session."
         )),
@@ -309,7 +321,10 @@ impl eframe::App for CampfireApp {
                 [icon.width as usize, icon.height as usize],
                 &icon.rgba,
             );
-            self.logo = Some(ui.ctx().load_texture("logo", image, egui::TextureOptions::LINEAR));
+            self.logo = Some(
+                ui.ctx()
+                    .load_texture("logo", image, egui::TextureOptions::LINEAR),
+            );
         }
 
         // Drive live processes: drain logs, detect exit, escalate shutdown.
@@ -355,26 +370,48 @@ impl eframe::App for CampfireApp {
         let dup_ports = port::duplicate_config_ports(&self.servers);
         let mut action: Option<Action> = None;
 
-        egui::Panel::top("top_bar").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if let Some(logo) = &self.logo {
-                    ui.add(egui::Image::from_texture(logo).max_height(22.0));
-                }
-                ui.heading("Campfire");
-                ui.separator();
-                let active = self.running.values().filter(|p| !p.is_terminal()).count();
-                ui.label(format!("running {active}/{}", self.servers.len()));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(ui::icon_button(ui::icons::help())).on_hover_text("Help").clicked() {
-                        action = Some(Action::OpenHelp);
-                    }
-                    if let Some(notice) = &self.notice {
-                        let warn = ui.visuals().warn_fg_color;
-                        ui.colored_label(warn, notice);
-                    }
-                });
+        // Every section is a white rounded block on the grey canvas: the panel
+        // frames carry the canvas fill plus the outer margins (12 at the window
+        // edge, 5 + 5 = 10 between blocks), and their divider lines are off.
+        egui::Panel::top("top_bar")
+            .frame(theme::canvas_frame(egui::Margin {
+                left: 12,
+                right: 12,
+                top: 12,
+                bottom: 5,
+            }))
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                theme::block_frame()
+                    .inner_margin(egui::Margin::symmetric(14, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            if let Some(logo) = &self.logo {
+                                ui.add(egui::Image::from_texture(logo).max_height(22.0));
+                            }
+                            ui.heading("Campfire");
+                            let active = self.running.values().filter(|p| !p.is_terminal()).count();
+                            ui.weak(format!("running {active}/{}", self.servers.len()));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .add(ui::icon_button(ui::icons::help()))
+                                        .on_hover_text("Help")
+                                        .clicked()
+                                    {
+                                        action = Some(Action::OpenHelp);
+                                    }
+                                    if let Some(notice) = &self.notice {
+                                        let warn = ui.visuals().warn_fg_color;
+                                        ui.colored_label(warn, notice);
+                                    }
+                                },
+                            );
+                        });
+                    });
             });
-        });
 
         let view = ui::View {
             servers: &self.servers,
@@ -384,10 +421,25 @@ impl eframe::App for CampfireApp {
             metrics: &self.metrics,
         };
         egui::Panel::left("server_list")
-            .default_size(220.0)
+            .default_size(240.0)
+            .frame(theme::canvas_frame(egui::Margin {
+                left: 12,
+                right: 5,
+                top: 5,
+                bottom: 12,
+            }))
+            .show_separator_line(false)
             .show(ui, |ui| ui::server_list::show(ui, &view, &mut action));
         egui::CentralPanel::default()
-            .show(ui, |ui| ui::detail::show(ui, &view, &mut self.log_view, &mut action));
+            .frame(theme::canvas_frame(egui::Margin {
+                left: 5,
+                right: 12,
+                top: 5,
+                bottom: 12,
+            }))
+            .show(ui, |ui| {
+                ui::detail::show(ui, &view, &mut self.log_view, &mut action)
+            });
 
         if let Some(action) = action {
             self.apply_action(action, ui.ctx().clone());
