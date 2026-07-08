@@ -36,6 +36,6 @@ libc = "0.2"
 # panic="abort") so RunningProcess::Drop still kills child processes on a panic.
 [profile.release]
 opt-level = "s"
-lto = true
+lto = "thin"
 codegen-units = 1
 strip = true
