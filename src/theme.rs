@@ -8,14 +8,18 @@ use egui::{vec2, Color32, CornerRadius, Margin, Stroke, Visuals};
 pub const ACCENT: Color32 = Color32::from_rgb(0xC2, 0x41, 0x0C);
 pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFB, 0xE3, 0xCC);
 
-/// Card surface palette (shadcn-like): a white surface on the slightly greyer
-/// panel, delineated by a hairline border, with a subtle grey hover.
-pub const CARD_FILL: Color32 = Color32::WHITE;
-pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE4, 0xE2, 0xDC);
-pub const CARD_HOVER_FILL: Color32 = Color32::from_rgb(0xF1, 0xF0, 0xEC);
+/// Card surface palette, tuned to the Claude Code app: a muted grey card on a
+/// near-white background, delineated by a hairline border, with a slightly
+/// deeper grey on hover. `INSET_FILL` is the recessed surface for code blocks.
+pub const CARD_FILL: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF2);
+pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE3, 0xE3, 0xE2);
+pub const CARD_HOVER_FILL: Color32 = Color32::from_rgb(0xEB, 0xEB, 0xEA);
+pub const INSET_FILL: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xE8);
 
-/// A base card frame: white surface, hairline border, rounded, padded. Callers
-/// may override `.fill`/`.stroke` (e.g. for the selected/hover states).
+/// A base card frame: muted grey surface, hairline border, rounded, padded —
+/// delineated by fill + border, not elevation (no shadow, since the card sits
+/// darker than the background). Callers may override `.fill`/`.stroke` (e.g. for
+/// the selected/hover states).
 pub fn card_frame() -> egui::Frame {
     egui::Frame::new()
         .fill(CARD_FILL)
@@ -64,8 +68,8 @@ fn install_visuals(ctx: &egui::Context) {
 fn build_visuals() -> Visuals {
     let mut visuals = Visuals::light();
 
-    // Slightly greyer than the cards so white card surfaces lift off the panel.
-    visuals.panel_fill = Color32::from_rgb(0xF5, 0xF4, 0xF1);
+    // App background — the Claude Code near-white; cards sit slightly darker on top.
+    visuals.panel_fill = Color32::from_rgb(0xFD, 0xFD, 0xFC);
     visuals.window_fill = Color32::WHITE;
     visuals.faint_bg_color = Color32::from_rgb(0xF2, 0xF1, 0xEE);
     visuals.extreme_bg_color = Color32::WHITE;

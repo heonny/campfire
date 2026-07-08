@@ -1,7 +1,7 @@
 //! The central panel: the selected server's header card (status, port, actions,
 //! CPU/memory, port-conflict warnings, command) and the log view below it.
 
-use super::{icons, status_dot, status_text, Action, View};
+use super::{icons, status_color, status_text, Action, View};
 use crate::model::ServerConfig;
 use crate::process::running::{RunningProcess, Status};
 use crate::theme;
@@ -44,12 +44,11 @@ fn header_row(
     action: &mut Option<Action>,
 ) {
     ui.horizontal(|ui| {
-        status_dot(ui, status);
         ui.heading(&server.name);
         if let Some(port) = server.port {
             ui.weak(format!(":{port}"));
         }
-        ui.weak(status_text(status));
+        status_badge(ui, status);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .add(egui::Button::image_and_text(icons::edit(), "Edit"))
@@ -80,6 +79,19 @@ fn header_row(
     });
 }
 
+/// A small status pill: the status text in its color, on a pale tint of it.
+fn status_badge(ui: &mut egui::Ui, status: &Status) {
+    let color = status_color(status);
+    let tint = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 36);
+    egui::Frame::new()
+        .fill(tint)
+        .corner_radius(egui::CornerRadius::same(9))
+        .inner_margin(egui::Margin::symmetric(8, 2))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new(status_text(status)).color(color).small());
+        });
+}
+
 /// CPU/memory (when running) and any port-conflict warnings.
 fn meta_rows(ui: &mut egui::Ui, view: &View, server: &ServerConfig, active: bool) {
     if active
@@ -106,7 +118,7 @@ fn meta_rows(ui: &mut egui::Ui, view: &View, server: &ServerConfig, active: bool
 fn command_block(ui: &mut egui::Ui, server: &ServerConfig) {
     ui.add_space(4.0);
     egui::Frame::new()
-        .fill(ui.visuals().faint_bg_color)
+        .fill(theme::INSET_FILL)
         .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
         .corner_radius(egui::CornerRadius::same(6))
         .inner_margin(egui::Margin::symmetric(8, 6))
@@ -126,7 +138,13 @@ fn log_section(
 ) {
     match proc {
         Some(proc) => {
-            if log_view::show(ui, log_view_state, proc.logs()) {
+            let clear = theme::card_frame()
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    log_view::show(ui, log_view_state, proc.logs())
+                })
+                .inner;
+            if clear {
                 *action = Some(Action::ClearLogs(server.id.clone()));
             }
         }

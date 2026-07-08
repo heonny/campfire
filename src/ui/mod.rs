@@ -44,7 +44,7 @@ pub fn status_color(status: &Status) -> egui::Color32 {
         Status::Running => egui::Color32::from_rgb(0x2E, 0x7D, 0x32),
         Status::Starting => egui::Color32::from_rgb(0xC2, 0x88, 0x1F),
         Status::Crashed { .. } => egui::Color32::from_rgb(0xC0, 0x39, 0x2B),
-        Status::Stopped => egui::Color32::from_rgb(0x9E, 0x9E, 0x9E),
+        Status::Stopped => egui::Color32::from_rgb(0x6E, 0x6E, 0x6E),
     }
 }
 
