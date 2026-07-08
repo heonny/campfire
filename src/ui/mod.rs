@@ -51,7 +51,8 @@ pub fn status_color(status: &Status) -> egui::Color32 {
 /// Paint a small filled status circle inline (no font glyph dependency).
 pub fn status_dot(ui: &mut egui::Ui, status: &Status) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-    ui.painter().circle_filled(rect.center(), 4.0, status_color(status));
+    ui.painter()
+        .circle_filled(rect.center(), 4.0, status_color(status));
 }
 
 pub fn status_text(status: &Status) -> String {
@@ -68,9 +69,11 @@ pub fn status_text(status: &Status) -> String {
 // stays consistent. Borderlessness and the hover fill ramp come from the theme
 // (interactive `bg_stroke` is zeroed there); these just pick the content shape.
 
-/// An icon-only button.
+/// An icon-only button: no chrome at rest — just the glyph — with the hover
+/// fill appearing on interaction. `frame_when_inactive(false)` keeps the same
+/// inner margin in every state, so the layout doesn't shift on hover.
 pub fn icon_button<'a>(icon: egui::Image<'a>) -> egui::Button<'a> {
-    egui::Button::image(icon)
+    egui::Button::image(icon).frame_when_inactive(false)
 }
 
 /// A text-only button.
@@ -119,10 +122,18 @@ pub fn toggle(ui: &mut egui::Ui, on: &mut bool, label: &str) -> egui::Response {
         .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *on, label));
     let how_on = ui.ctx().animate_bool(response.id, *on);
     let radius = 0.5 * rect.height();
-    let track = if *on { crate::theme::ACCENT } else { egui::Color32::from_gray(0xC8) };
-    ui.painter().rect_filled(rect, egui::CornerRadius::same(radius.round() as u8), track);
-    let knob_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+    let track = if *on {
+        crate::theme::ACCENT
+    } else {
+        egui::Color32::from_gray(0xC8)
+    };
     ui.painter()
-        .circle_filled(egui::pos2(knob_x, rect.center().y), radius - 2.0, egui::Color32::WHITE);
+        .rect_filled(rect, egui::CornerRadius::same(radius.round() as u8), track);
+    let knob_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+    ui.painter().circle_filled(
+        egui::pos2(knob_x, rect.center().y),
+        radius - 2.0,
+        egui::Color32::WHITE,
+    );
     response
 }
