@@ -25,8 +25,8 @@ install.
   over a bounded 5 MiB ring buffer
 - **Port awareness** — warns when a port is already in use or assigned to two
   servers; injects both `PORT` and `SERVER_PORT`
-- **Resource usage** — per-server CPU and memory, summed over the whole process
-  subtree
+- **Resource usage** — per-server CPU and memory shown live on each project
+  card, summed over the whole process subtree
 - **Cross-platform** — macOS and Windows
 - **Local and private** — everything runs on your machine; config is a plain
   TOML file
