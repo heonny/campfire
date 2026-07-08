@@ -235,10 +235,7 @@ impl eframe::App for CampfireApp {
                 ui.separator();
                 let active = self.running.values().filter(|p| !p.is_terminal()).count();
                 ui.label(format!("running {active}/{}", self.servers.len()));
-                if ui
-                    .add(egui::Button::image_and_text(ui::icons::help(), "Help"))
-                    .clicked()
-                {
+                if ui.add(ui::action_button(ui::icons::help(), "Help")).clicked() {
                     action = Some(Action::OpenHelp);
                 }
                 if let Some(notice) = &self.notice {
@@ -270,6 +267,7 @@ impl eframe::App for CampfireApp {
             let mut outcome = EditorOutcome::None;
             if let Some(form) = &mut self.editor {
                 let response = egui::Modal::new(egui::Id::new("server_editor"))
+                    .frame(theme::modal_frame())
                     .show(ui.ctx(), |ui| ui::editor::show(ui, form));
                 let dismissed = response.should_close();
                 outcome = response.inner;
@@ -281,7 +279,9 @@ impl eframe::App for CampfireApp {
         }
 
         if self.show_help {
-            let response = egui::Modal::new(egui::Id::new("help")).show(ui.ctx(), ui::help::show);
+            let response = egui::Modal::new(egui::Id::new("help"))
+                .frame(theme::modal_frame())
+                .show(ui.ctx(), ui::help::show);
             if response.should_close() || response.inner {
                 self.show_help = false;
             }

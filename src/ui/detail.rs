@@ -1,7 +1,7 @@
 //! The central panel: the selected server's header card (status, port, actions,
 //! CPU/memory, port-conflict warnings, command) and the log view below it.
 
-use super::{icons, status_color, status_text, Action, View};
+use super::{action_button, icons, status_color, status_text, Action, View};
 use crate::model::ServerConfig;
 use crate::process::running::{RunningProcess, Status};
 use crate::theme;
@@ -50,29 +50,17 @@ fn header_row(
         }
         status_badge(ui, status);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .add(egui::Button::image_and_text(icons::edit(), "Edit"))
-                .clicked()
-            {
+            if ui.add(action_button(icons::edit(), "Edit")).clicked() {
                 *action = Some(Action::OpenEdit(server.id.clone()));
             }
             if active {
-                if ui
-                    .add(egui::Button::image_and_text(icons::restart(), "Restart"))
-                    .clicked()
-                {
+                if ui.add(action_button(icons::restart(), "Restart")).clicked() {
                     *action = Some(Action::Restart(server.id.clone()));
                 }
-                if ui
-                    .add(egui::Button::image_and_text(icons::stop(), "Stop"))
-                    .clicked()
-                {
+                if ui.add(action_button(icons::stop(), "Stop")).clicked() {
                     *action = Some(Action::Stop(server.id.clone()));
                 }
-            } else if ui
-                .add(egui::Button::image_and_text(icons::start(), "Start"))
-                .clicked()
-            {
+            } else if ui.add(action_button(icons::start(), "Start")).clicked() {
                 *action = Some(Action::Start(server.id.clone()));
             }
         });
@@ -117,15 +105,10 @@ fn meta_rows(ui: &mut egui::Ui, view: &View, server: &ServerConfig, active: bool
 /// The run command, shown in a subtle inset "code block".
 fn command_block(ui: &mut egui::Ui, server: &ServerConfig) {
     ui.add_space(4.0);
-    egui::Frame::new()
-        .fill(theme::INSET_FILL)
-        .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
-        .corner_radius(egui::CornerRadius::same(6))
-        .inner_margin(egui::Margin::symmetric(8, 6))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.add(egui::Label::new(egui::RichText::new(&server.command).monospace()).selectable(true));
-        });
+    theme::inset_frame().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.add(egui::Label::new(egui::RichText::new(&server.command).monospace()).selectable(true));
+    });
 }
 
 /// The log view (or a placeholder when the server has never run).
@@ -139,6 +122,7 @@ fn log_section(
     match proc {
         Some(proc) => {
             let clear = theme::card_frame()
+                .fill(egui::Color32::WHITE)
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     log_view::show(ui, log_view_state, proc.logs())

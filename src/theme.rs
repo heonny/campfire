@@ -16,6 +16,32 @@ pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE3, 0xE3, 0xE2);
 pub const CARD_HOVER_FILL: Color32 = Color32::from_rgb(0xEB, 0xEB, 0xEA);
 pub const INSET_FILL: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xE8);
 
+/// A recessed inset surface for code / command text (a touch darker than the
+/// card, hairline border, rounded, snug padding).
+pub fn inset_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(INSET_FILL)
+        .stroke(Stroke::new(1.0, CARD_BORDER))
+        .corner_radius(CornerRadius::same(6))
+        .inner_margin(Margin::symmetric(8, 6))
+}
+
+/// The dialog surface: white, generously padded, rounded, with a soft drop
+/// shadow so it reads as elevated above the dimmed backdrop.
+pub fn modal_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(Color32::WHITE)
+        .stroke(Stroke::new(1.0, CARD_BORDER))
+        .corner_radius(CornerRadius::same(12))
+        .inner_margin(Margin::same(22))
+        .shadow(egui::Shadow {
+            offset: [0, 8],
+            blur: 32,
+            spread: 0,
+            color: Color32::from_black_alpha(38),
+        })
+}
+
 /// A base card frame: muted grey surface, hairline border, rounded, padded —
 /// delineated by fill + border, not elevation (no shadow, since the card sits
 /// darker than the background). Callers may override `.fill`/`.stroke` (e.g. for
@@ -78,6 +104,23 @@ fn build_visuals() -> Visuals {
     visuals.selection.stroke = Stroke::new(1.0, ACCENT);
     visuals.hyperlink_color = ACCENT;
 
+    // Buttons are borderless — their only hover/press feedback is a gentle fill
+    // darkening (below). egui's light theme gives inactive widgets a 0-width
+    // border but hovered/active a 1px one; that per-state width mismatch made
+    // buttons resize by 1px on hover, so drop the interactive borders entirely.
+    // Text fields keep their focus ring — that uses `selection.stroke`, untouched.
+    for widget in [
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.open,
+    ] {
+        widget.bg_stroke = Stroke::NONE;
+    }
+    visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0xEA, 0xEA, 0xE9);
+    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(0xE1, 0xE1, 0xE0);
+    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0xD8, 0xD8, 0xD7);
+
     let radius = CornerRadius::same(6);
     for widget in [
         &mut visuals.widgets.noninteractive,
@@ -87,6 +130,9 @@ fn build_visuals() -> Visuals {
         &mut visuals.widgets.open,
     ] {
         widget.corner_radius = radius;
+        // Don't grow widgets on hover/press — the size change makes the toolbar
+        // layout jitter. Feedback comes from the fill color instead.
+        widget.expansion = 0.0;
     }
     visuals.window_corner_radius = CornerRadius::same(10);
 

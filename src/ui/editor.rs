@@ -4,6 +4,7 @@
 //! parses and validates them into a [`ServerConfig`], and [`show`] renders the
 //! form and reports what the user did via [`EditorOutcome`].
 
+use super::{primary_button, text_button, text_input};
 use crate::model::{EnvVar, Preset, ServerConfig};
 use eframe::egui;
 use uuid::Uuid;
@@ -166,23 +167,30 @@ fn default_shell_display() -> String {
     }
 }
 
+/// A small bold section heading with a little breathing room under it.
+fn section_label(ui: &mut egui::Ui, text: &str) {
+    ui.label(egui::RichText::new(text).strong());
+    ui.add_space(6.0);
+}
+
 /// Render the form and report the user's action.
 pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
     let mut outcome = EditorOutcome::None;
-    ui.set_min_width(480.0);
+    ui.set_min_width(460.0);
     ui.heading(if form.editing_id.is_some() {
         "Edit server"
     } else {
         "Add server"
     });
-    ui.separator();
+    ui.weak("Configure how this server starts and its environment.");
+    ui.add_space(14.0);
 
     egui::Grid::new("editor_grid")
         .num_columns(2)
-        .spacing([12.0, 8.0])
+        .spacing([16.0, 10.0])
         .show(ui, |ui| {
             ui.label("Name");
-            ui.text_edit_singleline(&mut form.name);
+            text_input(ui, &mut form.name, "my-server", 280.0);
             ui.end_row();
 
             ui.label("Preset");
@@ -201,8 +209,8 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
 
             ui.label("Working dir");
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut form.cwd).desired_width(260.0));
-                if ui.button("Browse…").clicked() {
+                text_input(ui, &mut form.cwd, "", 210.0);
+                if ui.add(text_button("Browse…")).clicked() {
                     let mut dialog = rfd::FileDialog::new();
                     if !form.cwd.trim().is_empty() {
                         dialog = dialog.set_directory(form.cwd.trim());
@@ -215,17 +223,17 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
             ui.end_row();
 
             ui.label("Command");
-            ui.text_edit_singleline(&mut form.command);
+            text_input(ui, &mut form.command, "npm run dev", 280.0);
             ui.end_row();
 
             ui.label("Port");
-            ui.text_edit_singleline(&mut form.port);
+            text_input(ui, &mut form.port, "3000", 100.0);
             ui.end_row();
 
             ui.label(".env file");
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut form.env_file).desired_width(260.0));
-                if ui.button("Browse…").clicked() {
+                text_input(ui, &mut form.env_file, "", 210.0);
+                if ui.add(text_button("Browse…")).clicked() {
                     let mut dialog = rfd::FileDialog::new();
                     if !form.cwd.trim().is_empty() {
                         dialog = dialog.set_directory(form.cwd.trim());
@@ -238,55 +246,66 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
             ui.end_row();
 
             ui.label("Shell");
-            ui.text_edit_singleline(&mut form.shell);
+            text_input(ui, &mut form.shell, "(default login shell)", 280.0);
             ui.end_row();
         });
 
-    ui.separator();
-    ui.label("Environment variables");
+    ui.add_space(16.0);
+    section_label(ui, "Environment variables");
     let mut remove: Option<usize> = None;
     for (index, (key, value)) in form.env.iter_mut().enumerate() {
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(key).desired_width(150.0).hint_text("KEY"));
+            text_input(ui, key, "KEY", 140.0);
             ui.label("=");
-            ui.add(egui::TextEdit::singleline(value).desired_width(180.0).hint_text("value"));
-            if ui.button("−").clicked() {
+            text_input(ui, value, "value", 170.0);
+            if ui.add(text_button("−")).clicked() {
                 remove = Some(index);
             }
         });
+        ui.add_space(4.0);
     }
     if let Some(index) = remove {
         form.env.remove(index);
     }
-    if ui.button("+ add variable").clicked() {
+    if ui.add(text_button("+ add variable")).clicked() {
         form.env.push((String::new(), String::new()));
     }
 
-    ui.separator();
-    ui.label("Command preview");
-    ui.monospace(form.preview());
+    ui.add_space(16.0);
+    section_label(ui, "Command preview");
+    crate::theme::inset_frame().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.add(egui::Label::new(egui::RichText::new(form.preview()).monospace()));
+    });
 
     if let Some(error) = &form.error {
-        let color = ui.visuals().error_fg_color;
-        ui.colored_label(color, error);
+        ui.add_space(6.0);
+        ui.colored_label(ui.visuals().error_fg_color, error);
     }
 
+    ui.add_space(18.0);
     ui.separator();
+    ui.add_space(10.0);
     ui.horizontal(|ui| {
-        if ui.button("Save").clicked() {
-            match form.to_config() {
-                Ok(config) => outcome = EditorOutcome::Save(config),
-                Err(message) => form.error = Some(message),
+        if let Some(id) = &form.editing_id {
+            let delete = egui::Button::new(
+                egui::RichText::new("Delete").color(ui.visuals().error_fg_color),
+            );
+            if ui.add(delete).clicked() {
+                outcome = EditorOutcome::Delete(id.clone());
             }
         }
-        if ui.button("Cancel").clicked() {
-            outcome = EditorOutcome::Cancel;
-        }
-        if let Some(id) = &form.editing_id
-            && ui.button("Delete").clicked()
-        {
-            outcome = EditorOutcome::Delete(id.clone());
-        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.add(primary_button("Save")).clicked() {
+                match form.to_config() {
+                    Ok(config) => outcome = EditorOutcome::Save(config),
+                    Err(message) => form.error = Some(message),
+                }
+            }
+            if ui.add(text_button("Cancel")).clicked() {
+                outcome = EditorOutcome::Cancel;
+            }
+        });
     });
 
     outcome

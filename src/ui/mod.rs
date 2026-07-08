@@ -63,3 +63,71 @@ pub fn status_text(status: &Status) -> String {
         Status::Crashed { code: None } => "crashed".to_string(),
     }
 }
+
+// Button constructors, kept as the single place buttons are made so styling
+// stays consistent. Borderlessness and the hover fill ramp come from the theme
+// (interactive `bg_stroke` is zeroed there); these just pick the content shape.
+
+/// An icon + label button.
+pub fn action_button<'a>(icon: egui::Image<'a>, label: impl Into<egui::WidgetText>) -> egui::Button<'a> {
+    egui::Button::image_and_text(icon, label)
+}
+
+/// An icon-only button (for compact toolbars).
+pub fn icon_button<'a>(icon: egui::Image<'a>) -> egui::Button<'a> {
+    egui::Button::image(icon)
+}
+
+/// A text-only button.
+pub fn text_button(label: &str) -> egui::Button<'_> {
+    egui::Button::new(label)
+}
+
+/// A filled accent button for the primary action (e.g. Save).
+pub fn primary_button(label: &str) -> egui::Button<'_> {
+    egui::Button::new(egui::RichText::new(label).color(egui::Color32::WHITE))
+        .fill(crate::theme::ACCENT)
+}
+
+/// A single-line text input drawn as a bordered, padded box. Fields are
+/// otherwise borderless (the theme zeroes widget outlines for the flat buttons),
+/// so the box is a wrapping [`egui::Frame`]; the inner [`egui::TextEdit`] is
+/// frameless and transparent. Returns the edit response.
+pub fn text_input(ui: &mut egui::Ui, text: &mut String, hint: &str, width: f32) -> egui::Response {
+    egui::Frame::new()
+        .fill(egui::Color32::WHITE)
+        .stroke(egui::Stroke::new(1.0, crate::theme::CARD_BORDER))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(8, 5))
+        .show(ui, |ui| {
+            ui.add(
+                egui::TextEdit::singleline(text)
+                    .frame(egui::Frame::NONE)
+                    .background_color(egui::Color32::TRANSPARENT)
+                    .hint_text(hint)
+                    .desired_width(width),
+            )
+        })
+        .inner
+}
+
+/// A small on/off switch (à la shadcn's Switch): an amber pill when on, grey
+/// when off, with a sliding white knob. Flips `*on` when clicked. `label` is the
+/// accessible name (assistive tech announces it with the on/off state).
+pub fn toggle(ui: &mut egui::Ui, on: &mut bool, label: &str) -> egui::Response {
+    let (rect, mut response) = ui.allocate_exact_size(egui::vec2(30.0, 17.0), egui::Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *on, label));
+    let how_on = ui.ctx().animate_bool(response.id, *on);
+    let radius = 0.5 * rect.height();
+    let track = if *on { crate::theme::ACCENT } else { egui::Color32::from_gray(0xC8) };
+    ui.painter().rect_filled(rect, egui::CornerRadius::same(radius.round() as u8), track);
+    let knob_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+    ui.painter()
+        .circle_filled(egui::pos2(knob_x, rect.center().y), radius - 2.0, egui::Color32::WHITE);
+    response
+}

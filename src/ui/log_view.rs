@@ -2,7 +2,7 @@
 //! virtualized tailing list with ANSI colors, search highlighting, selectable
 //! lines, and a blank bottom row.
 
-use super::icons;
+use super::{icon_button, icons, text_input, toggle};
 use crate::process::log_buffer::LogBuffer;
 use eframe::egui;
 
@@ -37,33 +37,28 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
     let mut clear_requested = false;
     ui.horizontal(|ui| {
         ui.label("Log");
-        ui.add(
-            egui::TextEdit::singleline(&mut state.search)
-                .hint_text("search")
-                .desired_width(200.0),
-        );
-        if ui
-            .add(egui::Button::image(icons::scroll_top()))
-            .on_hover_text("scroll to top")
-            .clicked()
-        {
-            state.scroll_to = Some(ScrollTo::Top);
-        }
-        if ui
-            .add(egui::Button::image(icons::scroll_bottom()))
-            .on_hover_text("scroll to bottom")
-            .clicked()
-        {
-            state.scroll_to = Some(ScrollTo::Bottom);
-        }
-        ui.checkbox(&mut state.follow, "follow");
-        if ui
-            .add(egui::Button::image(icons::clear()))
-            .on_hover_text("clear log")
-            .clicked()
-        {
-            clear_requested = true;
-        }
+        text_input(ui, &mut state.search, "search", 150.0);
+        // All controls grouped at the right edge; the log body stays the focus.
+        // (right_to_left lays out in reverse, so the reading order is
+        //  top, bottom, clear … follow [switch].)
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            toggle(ui, &mut state.follow, "follow").on_hover_text("follow new output");
+            ui.label("follow");
+            ui.add_space(6.0);
+            if ui.add(icon_button(icons::clear())).on_hover_text("clear log").clicked() {
+                clear_requested = true;
+            }
+            if ui
+                .add(icon_button(icons::scroll_bottom()))
+                .on_hover_text("scroll to bottom")
+                .clicked()
+            {
+                state.scroll_to = Some(ScrollTo::Bottom);
+            }
+            if ui.add(icon_button(icons::scroll_top())).on_hover_text("scroll to top").clicked() {
+                state.scroll_to = Some(ScrollTo::Top);
+            }
+        });
     });
 
     // Tight line spacing for a terminal-like density (the app default is roomier).
