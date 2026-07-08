@@ -48,11 +48,27 @@ pub fn status_color(status: &Status) -> egui::Color32 {
     }
 }
 
+/// Fill for the status **dot**. A dot is a tiny filled circle with no text to
+/// read, so it wants a vivid, bright color; `status_color` is instead tuned for
+/// badge-text legibility on white (WCAG AA), which forces dark, muted hues that
+/// read as grey at dot size and even sit *darker* than the stopped grey.
+/// Running and Crashed diverge here — a brighter, more saturated green / red
+/// (both lighter than the stopped grey, so red-green color-blind users get a
+/// brightness cue) make a live or crashed server unmistakable next to a stopped
+/// one; Starting and Stopped reuse `status_color`.
+fn status_dot_fill(status: &Status) -> egui::Color32 {
+    match status {
+        Status::Running => egui::Color32::from_rgb(0x22, 0xC5, 0x5E),
+        Status::Crashed { .. } => egui::Color32::from_rgb(0xEF, 0x44, 0x44),
+        other => status_color(other),
+    }
+}
+
 /// Paint a small filled status circle inline (no font glyph dependency).
 pub fn status_dot(ui: &mut egui::Ui, status: &Status) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
     ui.painter()
-        .circle_filled(rect.center(), 4.0, status_color(status));
+        .circle_filled(rect.center(), 4.0, status_dot_fill(status));
 }
 
 pub fn status_text(status: &Status) -> String {
