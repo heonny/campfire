@@ -45,7 +45,7 @@ pub fn unregister(leader_pid: u32) {
 pub fn terminate_all() {
     let set = locked();
     for &pid in set.iter() {
-        kill_tree::tree_kill(pid, kill_tree::Signal::Term);
+        kill_tree::tree_kill(pid, kill_tree::Signal::Interrupt);
     }
 }
 

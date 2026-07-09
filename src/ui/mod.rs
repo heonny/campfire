@@ -26,6 +26,12 @@ pub enum Action {
     Delete(String),
     ClearLogs(String),
     Select(String),
+    /// Move the server at index `from` to index `to` in the list (drag reorder).
+    /// Indices are into the same rendered `View::servers`, resolved this frame.
+    Reorder {
+        from: usize,
+        to: usize,
+    },
     OpenNew,
     OpenEdit(String),
     OpenHelp,

@@ -16,9 +16,13 @@
 /// A termination signal, mapped to the platform primitive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Signal {
-    /// Graceful termination request (Unix `SIGTERM`). Windows has no graceful
-    /// group signal, so there it behaves like [`Signal::Kill`].
-    Term,
+    /// Graceful termination request (Unix `SIGINT` — the same signal Ctrl+C
+    /// sends). Build tools that relay logs from a child process (e.g. Gradle's
+    /// `bootRun`) shut that child down and flush its shutdown output on `SIGINT`,
+    /// whereas `SIGTERM` tends to kill the relay first and cut the log off.
+    /// Windows has no graceful group signal, so there it behaves like
+    /// [`Signal::Kill`].
+    Interrupt,
     /// Forceful kill (Unix `SIGKILL` / Windows `TerminateProcess`).
     Kill,
 }
@@ -53,7 +57,7 @@ mod platform {
 
     pub fn tree_kill(leader_pid: u32, signal: Signal) {
         let sig = match signal {
-            Signal::Term => libc::SIGTERM,
+            Signal::Interrupt => libc::SIGINT,
             Signal::Kill => libc::SIGKILL,
         };
         // command-group makes the child a group leader (PGID == PID), so one

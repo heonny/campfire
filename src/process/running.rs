@@ -213,8 +213,17 @@ impl RunningProcess {
     /// escalates to a forceful kill after `grace` (via [`RunningProcess::poll`]).
     /// Owned processes signal through the group-child handle; adopted ones go
     /// through [`crate::process::kill_tree`] by PID.
+    ///
+    /// A second `stop` while a graceful shutdown is already in flight escalates
+    /// immediately — the user asked twice, so the remaining grace is skipped and
+    /// the group is force-killed now (mirrors IntelliJ's "stop again to force").
     pub fn stop(&mut self, grace: Duration) {
-        if self.stop_requested || self.is_terminal() {
+        if self.is_terminal() {
+            return;
+        }
+        if self.stop_requested {
+            self.force_kill();
+            self.force_deadline = None;
             return;
         }
         self.stop_requested = true;
@@ -240,7 +249,12 @@ impl RunningProcess {
             ProcessHandle::Owned { child, .. } => {
                 #[cfg(unix)]
                 {
-                    if child.signal(Signal::SIGTERM).is_ok() {
+                    // SIGINT (Ctrl+C), not SIGTERM: a build tool that relays a
+                    // child's logs — Gradle `bootRun` running a Spring Boot app —
+                    // forwards SIGINT to that child and keeps relaying its
+                    // shutdown output, so graceful-shutdown logs reach us instead
+                    // of being cut off when the relay itself exits.
+                    if child.signal(Signal::SIGINT).is_ok() {
                         return true;
                     }
                 }
@@ -248,9 +262,9 @@ impl RunningProcess {
                 false
             }
             // No graceful group signal without the handle on Windows, but on Unix
-            // killpg(SIGTERM) mirrors the owned path; escalation still applies.
+            // killpg(SIGINT) mirrors the owned path; escalation still applies.
             ProcessHandle::Adopted { .. } => {
-                kill_tree::tree_kill(self.pid, kill_tree::Signal::Term);
+                kill_tree::tree_kill(self.pid, kill_tree::Signal::Interrupt);
                 cfg!(unix)
             }
         }
@@ -413,6 +427,36 @@ mod tests {
         drain_until_terminal(&mut proc, Duration::from_secs(5));
 
         assert!(proc.is_terminal(), "process did not stop");
+        assert_eq!(proc.status(), &Status::Stopped);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn second_stop_escalates_past_the_grace_window() {
+        // A process that ignores the graceful signal (SIGINT) and SIGTERM: the
+        // graceful stop won't end it, so only a forced kill can — proving the
+        // second stop escalated rather than waiting out the (very long) grace.
+        let command = "trap '' INT TERM; echo ready; while true; do sleep 0.05; done";
+        let mut proc = RunningProcess::spawn(&config_with_command(command), || {}).unwrap();
+        for _ in 0..10 {
+            proc.poll();
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(proc.status(), &Status::Running);
+
+        // First stop: SIGINT (ignored) with a grace far longer than the test.
+        proc.stop(Duration::from_secs(60));
+        thread::sleep(Duration::from_millis(150));
+        proc.poll();
+        assert!(
+            !proc.is_terminal(),
+            "a signal-ignoring process should survive within its grace window"
+        );
+
+        // Second stop: must force-kill now, not wait out the 60s grace.
+        proc.stop(Duration::from_secs(60));
+        drain_until_terminal(&mut proc, Duration::from_secs(5));
+        assert!(proc.is_terminal(), "second stop did not force-kill the group");
         assert_eq!(proc.status(), &Status::Stopped);
     }
 

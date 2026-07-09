@@ -60,6 +60,14 @@ fn main() -> eframe::Result<()> {
     )
 }
 
+/// How long a graceful stop waits for a server to exit on its own before the
+/// group is force-killed. Long enough for a framework's shutdown hooks to run —
+/// draining connections, closing pools — and print their logs (Spring Boot's
+/// graceful shutdown, etc.), which a shorter window would cut off. This bounds
+/// only a UI-initiated Stop/Restart; closing the app force-kills at once via
+/// `Drop`, and pressing Stop again during the wait escalates immediately.
+const STOP_GRACE: Duration = Duration::from_secs(10);
+
 /// Root application state.
 struct CampfireApp {
     servers: Vec<ServerConfig>,
@@ -124,7 +132,8 @@ impl CampfireApp {
                 } else {
                     // Config was deleted, so the user wants this gone: SIGKILL
                     // frees the port for certain (no grace is owed, and a trapped
-                    // SIGTERM would leak it) — and a dead PID needs no re-tracking.
+                    // graceful signal would leak it) — and a dead PID needs no
+                    // re-tracking.
                     kill_tree::tree_kill(entry.pid, kill_tree::Signal::Kill);
                     stopped += 1;
                 }
@@ -183,14 +192,14 @@ impl CampfireApp {
             Action::Start(id) => self.start_server(&id, ctx),
             Action::Stop(id) => {
                 if let Some(proc) = self.running.get_mut(&id) {
-                    proc.stop(Duration::from_secs(3));
+                    proc.stop(STOP_GRACE);
                 }
             }
             Action::Restart(id) => {
                 let active = self.running.get(&id).is_some_and(|p| !p.is_terminal());
                 if active {
                     if let Some(proc) = self.running.get_mut(&id) {
-                        proc.stop(Duration::from_secs(3));
+                        proc.stop(STOP_GRACE);
                     }
                     self.restart_pending.insert(id); // relaunched once terminated
                 } else {
@@ -213,6 +222,7 @@ impl CampfireApp {
                 }
             }
             Action::Select(id) => self.selected = Some(id),
+            Action::Reorder { from, to } => self.reorder_servers(from, to),
             Action::OpenNew => self.editor = Some(EditorForm::new_server()),
             Action::OpenEdit(id) => {
                 if let Some(server) = self.servers.iter().find(|s| s.id == id) {
@@ -293,6 +303,15 @@ impl CampfireApp {
         }
     }
 
+    /// Apply a drag reorder and persist the new order. Persistence is the list's
+    /// existing save path, so the on-disk `servers` order is the display order —
+    /// no separate ordering field is needed. A no-op move skips the write.
+    fn reorder_servers(&mut self, from: usize, to: usize) {
+        if move_in_place(&mut self.servers, from, to) {
+            self.persist();
+        }
+    }
+
     fn persist(&mut self) {
         let doc = store::ConfigDoc {
             servers: self.servers.clone(),
@@ -352,6 +371,26 @@ impl CampfireApp {
             eprintln!("campfire: could not persist runtime state ({err})");
         }
     }
+}
+
+/// Move the element at `from` to insertion index `to`, where `to` is the drop
+/// position computed **before** removal (as the drag UI reports it), and adjust
+/// for the earlier removal when moving down. Returns whether the order actually
+/// changed — an out-of-range or in-place move leaves the vec untouched, so the
+/// caller can skip persisting.
+fn move_in_place<T>(items: &mut Vec<T>, from: usize, to: usize) -> bool {
+    if from >= items.len() {
+        return false;
+    }
+    // Dropping just above or just below yourself lands in the same slot; after
+    // accounting for the removal shift, that is `insert == from` — a no-op.
+    let insert = (if from < to { to.saturating_sub(1) } else { to }).min(items.len() - 1);
+    if insert == from {
+        return false;
+    }
+    let item = items.remove(from);
+    items.insert(insert, item);
+    true
 }
 
 /// One-line summary of what startup reconcile did, or `None` if nothing was
@@ -544,5 +583,53 @@ impl eframe::App for CampfireApp {
         }
 
         self.render_delete_confirm(ui.ctx());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::move_in_place;
+
+    #[test]
+    fn move_down_lands_before_the_drop_target() {
+        let mut v = vec![0, 1, 2, 3];
+        assert!(move_in_place(&mut v, 0, 2));
+        assert_eq!(v, vec![1, 0, 2, 3]);
+    }
+
+    #[test]
+    fn move_to_end() {
+        let mut v = vec![0, 1, 2, 3];
+        assert!(move_in_place(&mut v, 0, 4));
+        assert_eq!(v, vec![1, 2, 3, 0]);
+    }
+
+    #[test]
+    fn move_up_to_front() {
+        let mut v = vec![0, 1, 2, 3];
+        assert!(move_in_place(&mut v, 3, 0));
+        assert_eq!(v, vec![3, 0, 1, 2]);
+    }
+
+    #[test]
+    fn dropping_onto_self_is_a_noop() {
+        let mut v = vec![0, 1, 2, 3];
+        assert!(!move_in_place(&mut v, 1, 1));
+        assert_eq!(v, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn dropping_just_below_self_is_a_noop() {
+        // `to = from + 1` is the slot right after the item — the same position.
+        let mut v = vec![0, 1, 2, 3];
+        assert!(!move_in_place(&mut v, 1, 2));
+        assert_eq!(v, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn out_of_range_from_is_ignored() {
+        let mut v = vec![0, 1, 2];
+        assert!(!move_in_place(&mut v, 5, 0));
+        assert_eq!(v, vec![0, 1, 2]);
     }
 }

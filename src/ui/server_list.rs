@@ -34,10 +34,11 @@ pub fn show(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
                     ui.weak("등록된 프로젝트가 없습니다");
                     return;
                 }
-                for server in view.servers {
+                let mut reorder: Option<(usize, usize)> = None;
+                for (idx, server) in view.servers.iter().enumerate() {
                     let running = view.running.get(&server.id);
                     let active = running.is_some_and(|p| !p.is_terminal());
-                    Card {
+                    let response = Card {
                         server,
                         status: running
                             .map(|p| p.status().clone())
@@ -53,12 +54,24 @@ pub fn show(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
                         selected: view.selected == Some(server.id.as_str()),
                         active,
                     }
-                    .show(ui, action);
+                    .show(ui, idx, action);
+                    insertion_marker(ui, &response, idx, &mut reorder);
                     ui.add_space(6.0);
+                }
+                // Emitted once the whole list has laid out, so the insertion line
+                // is painted this frame and the order changes on the next.
+                if let Some((from, to)) = reorder {
+                    *action = Some(Action::Reorder { from, to });
                 }
             });
     });
 }
+
+/// Drag-and-drop payload for a card: its index in the current list. A newtype
+/// because egui keys the drag payload by its Rust type — a bare `usize` would
+/// collide with any other `usize` payload added elsewhere later.
+#[derive(Clone, Copy)]
+struct ServerDragIdx(usize);
 
 /// The per-card render inputs, bundled so [`Card::show`] keeps a small
 /// signature (the fields all derive from the same server + runtime lookup).
@@ -72,9 +85,12 @@ struct Card<'a> {
 }
 
 impl Card<'_> {
-    /// Render the card. A left click selects it; a right click opens the
-    /// context menu. User intent is reported through `action`.
-    fn show(&self, ui: &mut egui::Ui, action: &mut Option<Action>) {
+    /// Render the card. A left click selects it; a drag reorders it; a right
+    /// click opens the context menu. User intent is reported through `action`;
+    /// the interaction [`egui::Response`] is returned so the caller can draw the
+    /// drop-insertion line and detect the drop. `idx` is this card's position in
+    /// the list — the payload carried while dragging.
+    fn show(&self, ui: &mut egui::Ui, idx: usize, action: &mut Option<Action>) -> egui::Response {
         let (fill, border) = if self.selected {
             (theme::ACCENT_WEAK, theme::ACCENT)
         } else {
@@ -107,15 +123,36 @@ impl Card<'_> {
             });
             metrics_row(ui, self.metrics);
         }
-        let response = prepared.allocate_space(ui).interact(egui::Sense::click());
-        if !self.selected && response.hovered() {
+        // `click_and_drag` so a short press still selects while a drag reorders.
+        let response = prepared
+            .allocate_space(ui)
+            .interact(egui::Sense::click_and_drag());
+        // Read the drag state off the response's OWN id: `interact` reuses the
+        // auto id `allocate_space` assigned, so a hand-built id never matches
+        // `is_being_dragged`. Set the payload (this card's index) on drag start;
+        // egui holds it until the drop, where `insertion_marker` reads it back.
+        let dragging = response.dragged();
+        response.dnd_set_drag_payload(ServerDragIdx(idx));
+        // Highlight the dragged card; otherwise the usual hover fill. The
+        // selection tint already won above.
+        if dragging {
+            prepared.frame.fill = theme::ACCENT_WEAK;
+        } else if !self.selected && response.hovered() {
             prepared.frame.fill = theme::CARD_HOVER_FILL;
         }
         prepared.paint(ui);
+        let response = response.on_hover_cursor(if dragging {
+            egui::CursorIcon::Grabbing
+        } else {
+            egui::CursorIcon::Grab
+        });
         self.context_menu(&response, action);
+        // A drag ends as a release, not a click, so this only fires on a genuine
+        // click — a reorder never also selects.
         if response.clicked() {
             *action = Some(Action::Select(self.server.id.clone()));
         }
+        response
     }
 
     /// The right-click menu: lifecycle actions (Start, or Stop/Restart while
@@ -164,6 +201,41 @@ impl Card<'_> {
                 ui.close();
             }
         });
+    }
+}
+
+/// While a card is dragged over row `idx`, paint an insertion line at the
+/// nearest edge and, on release, record the move as `(from, to)`. `to` is this
+/// row (pointer in the top half) or the next (bottom half) — the slot the line
+/// marks. Dropping a card onto itself yields `to == idx`, which `move_in_place`
+/// treats as a no-op, so no line is drawn there.
+fn insertion_marker(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    idx: usize,
+    reorder: &mut Option<(usize, usize)>,
+) {
+    let Some(hovered) = response.dnd_hover_payload::<ServerDragIdx>() else {
+        return;
+    };
+    let Some(pointer) = ui.input(|i| i.pointer.interact_pos()) else {
+        return;
+    };
+    let rect = response.rect;
+    let to = if hovered.0 == idx {
+        idx // hovering its own card — no marker, drop is a no-op
+    } else {
+        let stroke = egui::Stroke::new(2.0, theme::ACCENT);
+        if pointer.y < rect.center().y {
+            ui.painter().hline(rect.x_range(), rect.top(), stroke);
+            idx
+        } else {
+            ui.painter().hline(rect.x_range(), rect.bottom(), stroke);
+            idx + 1
+        }
+    };
+    if let Some(dragged) = response.dnd_release_payload::<ServerDragIdx>() {
+        *reorder = Some((dragged.0, to));
     }
 }
 
