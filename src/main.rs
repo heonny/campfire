@@ -79,6 +79,10 @@ struct CampfireApp {
     metrics: metrics::Metrics,
     /// Whether the help modal is open.
     show_help: bool,
+    /// Id of the server awaiting delete confirmation while the confirm dialog is
+    /// open. Both the sidebar context menu and the editor's Delete button set
+    /// this; the actual removal happens only on explicit confirm.
+    pending_delete: Option<String>,
     /// Lazily-loaded top-bar logo texture.
     logo: Option<egui::TextureHandle>,
     /// Servers currently running, mirrored to disk so a force-killed instance
@@ -136,6 +140,7 @@ impl CampfireApp {
             selected: None,
             running,
             editor: None,
+            pending_delete: None,
             log_view: LogView::new(),
             notice,
             restart_pending: HashSet::new(),
@@ -192,6 +197,16 @@ impl CampfireApp {
                     self.start_server(&id, ctx);
                 }
             }
+            Action::Duplicate(id) => {
+                // Insert the copy without changing the selection, so a
+                // right-click-duplicate leaves the current view in place.
+                if let Some(src) = self.servers.iter().find(|s| s.id == id) {
+                    let copy = src.duplicate();
+                    self.servers.push(copy);
+                    self.persist();
+                }
+            }
+            Action::Delete(id) => self.pending_delete = Some(id),
             Action::ClearLogs(id) => {
                 if let Some(proc) = self.running.get_mut(&id) {
                     proc.clear_logs();
@@ -221,14 +236,59 @@ impl CampfireApp {
                 self.editor = None;
             }
             EditorOutcome::Delete(id) => {
-                self.running.remove(&id); // dropped -> Drop force-kills the group
-                self.untrack_running(&id); // clear runtime + signal registry now
-                self.servers.retain(|s| s.id != id);
-                if self.selected.as_deref() == Some(id.as_str()) {
-                    self.selected = None;
-                }
-                self.persist();
+                // Defer to the shared confirm dialog; close the editor first so
+                // the confirmation isn't stacked on top of it.
+                self.pending_delete = Some(id);
                 self.editor = None;
+            }
+        }
+    }
+
+    /// Remove a server: drop its process (`Drop` force-kills the group), clear
+    /// runtime + signal-registry tracking, remove it from config, deselect it
+    /// if it was selected, and persist. Shared by the editor's Delete button
+    /// and the sidebar context menu's Delete.
+    fn delete_server(&mut self, id: &str) {
+        self.running.remove(id); // dropped -> Drop force-kills the group
+        self.untrack_running(id); // clear runtime + signal registry now
+        self.servers.retain(|s| s.id != id);
+        if self.selected.as_deref() == Some(id) {
+            self.selected = None;
+        }
+        self.persist();
+    }
+
+    /// Render the delete-confirmation modal when a delete is pending, and apply
+    /// the choice. The server is removed only on explicit confirm; click-away or
+    /// Esc cancels. If the pending server vanished meanwhile, the state is
+    /// silently dropped.
+    fn render_delete_confirm(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.pending_delete.clone() else {
+            return;
+        };
+        let Some(name) = self
+            .servers
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.name.clone())
+        else {
+            self.pending_delete = None;
+            return;
+        };
+        let response = egui::Modal::new(egui::Id::new("confirm_delete"))
+            .frame(theme::modal_frame())
+            .show(ctx, |ui| ui::confirm::show_delete(ui, &name));
+        let outcome = if response.should_close() {
+            ui::confirm::ConfirmOutcome::Cancel // click-away / Esc = cancel
+        } else {
+            response.inner
+        };
+        match outcome {
+            ui::confirm::ConfirmOutcome::None => {}
+            ui::confirm::ConfirmOutcome::Cancel => self.pending_delete = None,
+            ui::confirm::ConfirmOutcome::Confirm => {
+                self.delete_server(&id);
+                self.pending_delete = None;
             }
         }
     }
@@ -482,5 +542,7 @@ impl eframe::App for CampfireApp {
                 self.show_help = false;
             }
         }
+
+        self.render_delete_confirm(ui.ctx());
     }
 }

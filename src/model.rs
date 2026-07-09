@@ -116,6 +116,19 @@ impl ServerConfig {
         }
     }
 
+    /// Clone this config as an independent new server: a freshly generated id
+    /// and a "(copy)" name suffix, with every other field — command, port,
+    /// env, cwd — preserved. The port is intentionally kept, so a duplicate of
+    /// a server that has a port surfaces the normal duplicate-port warning
+    /// until the user changes it.
+    pub fn duplicate(&self) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            name: format!("{} (copy)", self.name),
+            ..self.clone()
+        }
+    }
+
     /// Validate the user-editable fields, returning every problem found
     /// (an empty vec means the config is valid). Filesystem existence of
     /// `cwd`/`env_file` is a launch-time concern, checked separately.
@@ -164,6 +177,22 @@ mod tests {
         let s = ServerConfig::from_preset("x", "/tmp", Preset::Custom);
         assert_eq!(s.command, "");
         assert_eq!(s.port, None);
+    }
+
+    #[test]
+    fn duplicate_gets_new_id_and_copy_suffix_keeping_fields() {
+        let mut s = ServerConfig::from_preset("api", "/srv/api", Preset::SpringBoot);
+        s.env.push(EnvVar {
+            key: "PROFILE".into(),
+            value: "dev".into(),
+        });
+        let dup = s.duplicate();
+        assert_ne!(dup.id, s.id, "duplicate gets a fresh id");
+        assert_eq!(dup.name, "api (copy)");
+        assert_eq!(dup.port, s.port, "port is kept as-is");
+        assert_eq!(dup.command, s.command);
+        assert_eq!(dup.cwd, s.cwd);
+        assert_eq!(dup.env, s.env);
     }
 
     #[test]

@@ -8,6 +8,7 @@ use crate::process::running::{RunningProcess, Status};
 use eframe::egui;
 use std::collections::{BTreeSet, HashMap};
 
+pub mod confirm;
 pub mod detail;
 pub mod editor;
 pub mod help;
@@ -21,6 +22,8 @@ pub enum Action {
     Start(String),
     Stop(String),
     Restart(String),
+    Duplicate(String),
+    Delete(String),
     ClearLogs(String),
     Select(String),
     OpenNew,

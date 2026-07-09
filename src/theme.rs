@@ -8,6 +8,12 @@ use egui::{Color32, CornerRadius, Margin, Stroke, Visuals, vec2};
 pub const ACCENT: Color32 = Color32::from_rgb(0xC2, 0x41, 0x0C);
 pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFB, 0xE3, 0xCC);
 
+/// Destructive-action fill (the confirm dialog's Delete button). A muted brick
+/// red — the same hue as the crashed-status color — dark enough that white text
+/// clears WCAG AA (~5.4:1), unlike egui's raw `error_fg_color` (#FF0000), which
+/// is tuned for foreground text and reads harsh as a button fill.
+pub const DANGER: Color32 = Color32::from_rgb(0xC0, 0x39, 0x2B);
+
 /// Card surface palette, tuned to the Claude Code app: a muted grey card on a
 /// near-white background, delineated by a hairline border, with a slightly
 /// deeper grey on hover. `INSET_FILL` is the recessed surface for code blocks.
