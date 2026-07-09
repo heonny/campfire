@@ -92,6 +92,22 @@ pub fn icon_button<'a>(icon: egui::Image<'a>) -> egui::Button<'a> {
     egui::Button::image(icon).frame_when_inactive(false)
 }
 
+/// An icon button that stays visibly "pressed" — a soft grey box — while `on`,
+/// used for the log view's follow toggle. Chromeless at rest when off (like
+/// [`icon_button`]); when on, the same hover fill is shown at rest so the active
+/// state reads without color. `selected(on)` also announces on/off to assistive
+/// tech. The caller flips the bound flag when the button is clicked.
+pub fn icon_toggle_button<'a>(icon: egui::Image<'a>, on: bool) -> egui::Button<'a> {
+    let button = egui::Button::image(icon)
+        .selected(on)
+        .frame_when_inactive(on);
+    if on {
+        button.fill(crate::theme::BUTTON_HOVER_FILL)
+    } else {
+        button
+    }
+}
+
 /// A text-only button.
 pub fn text_button(label: &str) -> egui::Button<'_> {
     egui::Button::new(label)
@@ -123,33 +139,4 @@ pub fn text_input(ui: &mut egui::Ui, text: &mut String, hint: &str, width: f32) 
             )
         })
         .inner
-}
-
-/// A small on/off switch (à la shadcn's Switch): an amber pill when on, grey
-/// when off, with a sliding white knob. Flips `*on` when clicked. `label` is the
-/// accessible name (assistive tech announces it with the on/off state).
-pub fn toggle(ui: &mut egui::Ui, on: &mut bool, label: &str) -> egui::Response {
-    let (rect, mut response) = ui.allocate_exact_size(egui::vec2(30.0, 17.0), egui::Sense::click());
-    if response.clicked() {
-        *on = !*on;
-        response.mark_changed();
-    }
-    response
-        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *on, label));
-    let how_on = ui.ctx().animate_bool(response.id, *on);
-    let radius = 0.5 * rect.height();
-    let track = if *on {
-        crate::theme::ACCENT
-    } else {
-        egui::Color32::from_gray(0xC8)
-    };
-    ui.painter()
-        .rect_filled(rect, egui::CornerRadius::same(radius.round() as u8), track);
-    let knob_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
-    ui.painter().circle_filled(
-        egui::pos2(knob_x, rect.center().y),
-        radius - 2.0,
-        egui::Color32::WHITE,
-    );
-    response
 }

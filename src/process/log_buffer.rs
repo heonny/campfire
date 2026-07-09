@@ -42,7 +42,11 @@ impl Default for LogBuffer {
 impl LogBuffer {
     /// Create a buffer holding up to `capacity` bytes of line text.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self { lines: VecDeque::new(), byte_len: 0, capacity }
+        Self {
+            lines: VecDeque::new(),
+            byte_len: 0,
+            capacity,
+        }
     }
 
     /// Append a line, dropping the oldest lines until the byte budget holds.

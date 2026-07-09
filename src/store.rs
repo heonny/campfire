@@ -30,7 +30,10 @@ pub struct ConfigDoc {
 
 impl Default for ConfigDoc {
     fn default() -> Self {
-        Self { version: SCHEMA_VERSION, servers: Vec::new() }
+        Self {
+            version: SCHEMA_VERSION,
+            servers: Vec::new(),
+        }
     }
 }
 
@@ -65,7 +68,10 @@ pub fn load_from(path: &Path) -> Result<ConfigDoc, StoreError> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(toml::from_str(&text)?),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ConfigDoc::default()),
-        Err(source) => Err(StoreError::Io { path: path.to_path_buf(), source }),
+        Err(source) => Err(StoreError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
     }
 }
 
@@ -74,8 +80,10 @@ pub fn load_from(path: &Path) -> Result<ConfigDoc, StoreError> {
 /// crash mid-write cannot leave a half-written (corrupt) config.
 pub fn save_to(path: &Path, doc: &ConfigDoc) -> Result<(), StoreError> {
     let text = toml::to_string_pretty(doc)?;
-    crate::fs_util::write_atomic(path, text.as_bytes())
-        .map_err(|source| StoreError::Io { path: path.to_path_buf(), source })
+    crate::fs_util::write_atomic(path, text.as_bytes()).map_err(|source| StoreError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 /// Load from the default OS config location.
@@ -114,8 +122,10 @@ mod tests {
     fn save_then_load_roundtrips() {
         let path = temp_path("roundtrip");
         let mut doc = ConfigDoc::default();
-        doc.servers.push(ServerConfig::from_preset("api", "/srv/api", Preset::NextJs));
-        doc.servers.push(ServerConfig::from_preset("db", "/srv/db", Preset::Custom));
+        doc.servers
+            .push(ServerConfig::from_preset("api", "/srv/api", Preset::NextJs));
+        doc.servers
+            .push(ServerConfig::from_preset("db", "/srv/db", Preset::Custom));
         save_to(&path, &doc).unwrap();
         let back = load_from(&path).unwrap();
         assert_eq!(doc, back);

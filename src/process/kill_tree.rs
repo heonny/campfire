@@ -85,7 +85,10 @@ mod platform {
         // before the root so a parent can't outlive (and re-detach) its child.
         let mut system = System::new();
         system.refresh_processes(ProcessesToUpdate::All, true);
-        for pid in subtree(&system, Pid::from_u32(leader_pid)).into_iter().rev() {
+        for pid in subtree(&system, Pid::from_u32(leader_pid))
+            .into_iter()
+            .rev()
+        {
             if let Some(proc) = system.process(pid) {
                 proc.kill();
             }
@@ -189,10 +192,15 @@ mod tests {
         // Read the ephemeral port the child bound.
         let stdout = child.inner().stdout.take().expect("child stdout");
         let mut line = String::new();
-        BufReader::new(stdout).read_line(&mut line).expect("read bound port");
+        BufReader::new(stdout)
+            .read_line(&mut line)
+            .expect("read bound port");
         let port: u16 = line.trim().parse().expect("port number");
 
-        assert!(!crate::port::is_port_free(port), "port {port} should be held by the child");
+        assert!(
+            !crate::port::is_port_free(port),
+            "port {port} should be held by the child"
+        );
 
         tree_kill(pid, Signal::Kill);
         let _ = child.wait(); // reap the leader
@@ -202,6 +210,9 @@ mod tests {
         while !crate::port::is_port_free(port) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert!(crate::port::is_port_free(port), "port {port} was not freed after tree_kill");
+        assert!(
+            crate::port::is_port_free(port),
+            "port {port} was not freed after tree_kill"
+        );
     }
 }

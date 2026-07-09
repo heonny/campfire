@@ -3,6 +3,7 @@
 
 use super::{Action, View, icon_button, icons, status_color, status_text};
 use crate::model::ServerConfig;
+use crate::process::log_buffer::LogBuffer;
 use crate::process::running::{RunningProcess, Status};
 use crate::theme;
 use crate::ui::log_view::{self, LogView};
@@ -144,7 +145,12 @@ fn command_block(ui: &mut egui::Ui, server: &ServerConfig) {
     });
 }
 
-/// The log view (or a placeholder when the server has never run).
+/// The log view. It renders the same whether or not the server is running — when
+/// there is no process it renders over an empty buffer, so the panel never
+/// collapses to a bare placeholder (the bottom control bar keeps it grounded).
+/// The one exception is an adopted (recovered) process: it has no live pipe to
+/// stream or clear, so it explains that instead of offering controls that can't
+/// do anything.
 fn log_section(
     ui: &mut egui::Ui,
     server: &ServerConfig,
@@ -153,35 +159,28 @@ fn log_section(
     log_view_state: &mut LogView,
     action: &mut Option<Action>,
 ) {
-    match proc {
-        Some(proc) => {
-            let clear = theme::block_frame()
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.set_min_height(ui.available_height());
-                    // An adopted process has no live pipe, so there is nothing to
-                    // stream or clear — explain that instead of showing an empty log.
-                    if recovered {
-                        ui.weak(
-                            "Recovered from a previous session — live logs aren't available. \
-                             Restart to stream logs.",
-                        );
-                        false
-                    } else {
-                        log_view::show(ui, log_view_state, proc.logs())
-                    }
-                })
-                .inner;
-            if clear {
-                *action = Some(Action::ClearLogs(server.id.clone()));
-            }
-        }
-        None => {
-            theme::block_frame().show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.set_min_height(ui.available_height());
-                ui.weak("no output yet");
-            });
-        }
+    if recovered {
+        theme::block_frame().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.set_min_height(ui.available_height());
+            ui.weak(
+                "Recovered from a previous session — live logs aren't available. \
+                 Restart to stream logs.",
+            );
+        });
+        return;
+    }
+
+    let empty = LogBuffer::default();
+    let logs = proc.map(|p| p.logs()).unwrap_or(&empty);
+    let clear = theme::block_frame()
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.set_min_height(ui.available_height());
+            log_view::show(ui, log_view_state, logs)
+        })
+        .inner;
+    if clear {
+        *action = Some(Action::ClearLogs(server.id.clone()));
     }
 }

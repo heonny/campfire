@@ -12,6 +12,7 @@ mod model;
 mod port;
 mod process;
 mod project;
+mod search;
 mod store;
 mod theme;
 mod ui;

@@ -125,7 +125,11 @@ pub fn detect_node_project(dir: &Path) -> Option<NodeProject> {
         .or_else(|| PackageManager::from_lockfile(dir))
         .unwrap_or(PackageManager::Npm);
 
-    Some(NodeProject { manager, scripts, port_hint: pkg.port_hint() })
+    Some(NodeProject {
+        manager,
+        scripts,
+        port_hint: pkg.port_hint(),
+    })
 }
 
 #[cfg(test)]
@@ -167,7 +171,10 @@ mod tests {
         .unwrap();
         // A conflicting lockfile that would otherwise say npm.
         fs::write(dir.join("package-lock.json"), "{}").unwrap();
-        assert_eq!(detect_node_project(&dir).unwrap().manager, PackageManager::Pnpm);
+        assert_eq!(
+            detect_node_project(&dir).unwrap().manager,
+            PackageManager::Pnpm
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -176,10 +183,16 @@ mod tests {
         let dir = scratch("lockfile");
         fs::write(dir.join("package.json"), r#"{"scripts":{"dev":"vite"}}"#).unwrap();
         fs::write(dir.join("yarn.lock"), "").unwrap();
-        assert_eq!(detect_node_project(&dir).unwrap().manager, PackageManager::Yarn);
+        assert_eq!(
+            detect_node_project(&dir).unwrap().manager,
+            PackageManager::Yarn
+        );
         // With no lockfile at all, default to npm.
         fs::remove_file(dir.join("yarn.lock")).unwrap();
-        assert_eq!(detect_node_project(&dir).unwrap().manager, PackageManager::Npm);
+        assert_eq!(
+            detect_node_project(&dir).unwrap().manager,
+            PackageManager::Npm
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -220,7 +233,11 @@ mod tests {
         .unwrap();
         assert_eq!(detect_node_project(&dir).unwrap().port_hint, Some(5173));
 
-        fs::write(dir.join("package.json"), r#"{"scripts":{"start":"node ."}}"#).unwrap();
+        fs::write(
+            dir.join("package.json"),
+            r#"{"scripts":{"start":"node ."}}"#,
+        )
+        .unwrap();
         assert_eq!(detect_node_project(&dir).unwrap().port_hint, None);
         let _ = fs::remove_dir_all(&dir);
     }

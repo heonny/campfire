@@ -45,9 +45,10 @@ pub fn show(ui: &mut egui::Ui) -> bool {
             section(
                 ui,
                 "Logs",
-                "Search filters the lines, 'follow' tails the bottom, and 'clear' \
-                 empties the view. ANSI colors are rendered and lines are \
-                 selectable.",
+                "Press Cmd/Ctrl+F to open the find/grep box (Esc closes it): find \
+                 highlights matches and steps between them, grep filters the lines. \
+                 Along the bottom, 'follow' tails the output and 'clear' empties the \
+                 view. ANSI colors are rendered and lines are selectable.",
             );
             section(
                 ui,

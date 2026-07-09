@@ -140,8 +140,8 @@ mod tests {
         let real_start = process_start_time(me).expect("own start time");
 
         let entries = vec![
-            entry(me, real_start),       // alive + matching -> orphan
-            entry(me, real_start ^ 0xFF), // alive but reused (mismatch) -> dropped
+            entry(me, real_start),           // alive + matching -> orphan
+            entry(me, real_start ^ 0xFF),    // alive but reused (mismatch) -> dropped
             entry(u32::MAX - 1, real_start), // dead pid -> dropped
         ];
         let orphans = confirmed_orphans(&entries);

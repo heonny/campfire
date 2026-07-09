@@ -29,16 +29,45 @@ pub fn edit() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/pencil.svg"))
 }
 
+/// Leading affordance for the find field.
+pub fn search() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/search.svg"))
+}
+
+/// Leading affordance for the grep (filter) field.
+pub fn filter() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/filter.svg"))
+}
+
+/// Follow the tail — auto-scroll as new output arrives.
+pub fn follow() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/chevrons-down.svg"))
+}
+
 pub fn scroll_top() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/arrow-up-to-line.svg"))
+    sized(egui::include_image!(
+        "../../assets/icons/arrow-up-to-line.svg"
+    ))
 }
 
 pub fn scroll_bottom() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/arrow-down-to-line.svg"))
+    sized(egui::include_image!(
+        "../../assets/icons/arrow-down-to-line.svg"
+    ))
 }
 
 pub fn clear() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/eraser.svg"))
+}
+
+/// Step to the previous find match.
+pub fn chevron_up() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/chevron-up.svg"))
+}
+
+/// Step to the next find match.
+pub fn chevron_down() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/chevron-down.svg"))
 }
 
 pub fn help() -> egui::Image<'static> {

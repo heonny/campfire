@@ -7,6 +7,7 @@
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontId};
+use std::ops::Range;
 
 // Foreground palette tuned for a light background (readable, not neon).
 const STANDARD: [Color32; 8] = [
@@ -30,18 +31,31 @@ const BRIGHT: [Color32; 8] = [
     Color32::from_rgb(0x42, 0x42, 0x42), // 97
 ];
 
-/// Search-match highlight background (amber, matching the app accent).
+/// Find-match highlight backgrounds: a soft amber behind every match, and a
+/// stronger amber behind the one the user has stepped onto (find navigation).
 const HIGHLIGHT_BG: Color32 = Color32::from_rgb(0xFF, 0xE0, 0x82);
+const ACTIVE_BG: Color32 = Color32::from_rgb(0xFF, 0xB3, 0x00);
 
 /// Build a colored [`LayoutJob`] from a line that may contain ANSI SGR codes.
-/// If `highlight` is a (lowercased) query, its matches are highlighted.
-pub fn to_job(text: &str, font: FontId, base: Color32, highlight: Option<&str>) -> LayoutJob {
+/// `ranges` are find-match byte ranges in the ANSI-**stripped** text (as
+/// returned by [`crate::search::Matcher::find_ranges`]); their spans get the
+/// highlight background, and the one at index `active` gets the stronger
+/// "current match" background. Pass an empty slice for no highlighting.
+pub fn to_job(
+    text: &str,
+    font: FontId,
+    base: Color32,
+    ranges: &[Range<usize>],
+    active: Option<usize>,
+) -> LayoutJob {
     let mut job = LayoutJob::default();
     let mut color = base;
     let mut rest = text;
+    let mut pos = 0; // byte offset into the stripped text, tracked so `ranges` map onto runs
     while let Some(idx) = rest.find('\x1b') {
         if idx > 0 {
-            push(&mut job, &rest[..idx], &font, color, highlight);
+            push_runs(&mut job, &rest[..idx], pos, &font, color, ranges, active);
+            pos += idx;
         }
         match parse_csi(&rest[idx..], color, base) {
             Some((consumed, new_color)) => {
@@ -52,7 +66,7 @@ pub fn to_job(text: &str, font: FontId, base: Color32, highlight: Option<&str>) 
         }
     }
     if !rest.is_empty() {
-        push(&mut job, rest, &font, color, highlight);
+        push_runs(&mut job, rest, pos, &font, color, ranges, active);
     }
     job
 }
@@ -75,38 +89,60 @@ pub fn strip(text: &str) -> String {
     out
 }
 
-/// Append `text` in `color`, highlighting case-insensitive matches of the
-/// (already-lowercased) `highlight` query. Unicode-safe: matching runs on the
-/// lowercased text and is only applied when its byte offsets map cleanly back
-/// to the original — true for ASCII, Hangul, and most scripts; the rare
-/// length-changing folds (ß, İ, …) fall back to plain, un-highlighted text.
-fn push(job: &mut LayoutJob, text: &str, font: &FontId, color: Color32, highlight: Option<&str>) {
-    let Some(query) = highlight.filter(|q| !q.is_empty()) else {
-        return append(job, text, font, color, None);
-    };
-    let lower = text.to_lowercase();
-    if lower.len() != text.len() {
-        return append(job, text, font, color, None); // fold changed length
-    }
-    let mut start = 0;
-    while let Some(pos) = lower[start..].find(query) {
-        let at = start + pos;
-        let end = at + query.len();
-        if !text.is_char_boundary(at) || !text.is_char_boundary(end) {
-            break; // offsets don't align to chars (pathological): stop here
+/// Append one literal run (`chunk`, ANSI-free) in `color`, painting the parts
+/// that fall inside `ranges` with the highlight background. `chunk_start` is the
+/// chunk's byte offset in the stripped text, so the stripped-coordinate `ranges`
+/// map straight onto it. The `active` range gets [`ACTIVE_BG`]; the rest get
+/// [`HIGHLIGHT_BG`]. A match that straddles a color boundary spans two chunks —
+/// each chunk paints the part that lands in it. `ranges` are sorted and
+/// non-overlapping (as [`crate::search::Matcher::find_ranges`] returns them).
+fn push_runs(
+    job: &mut LayoutJob,
+    chunk: &str,
+    chunk_start: usize,
+    font: &FontId,
+    color: Color32,
+    ranges: &[Range<usize>],
+    active: Option<usize>,
+) {
+    let chunk_end = chunk_start + chunk.len();
+    let mut cursor = chunk_start; // absolute stripped offset of the next unpainted byte
+    for (i, r) in ranges.iter().enumerate() {
+        if r.start >= chunk_end {
+            break; // ranges are sorted; nothing after this overlaps the chunk
         }
-        if at > start {
-            append(job, &text[start..at], font, color, None);
+        if r.end <= cursor {
+            continue; // already painted past this match
         }
-        append(job, &text[at..end], font, color, Some(HIGHLIGHT_BG));
-        start = end;
+        let seg_start = r.start.max(chunk_start);
+        let seg_end = r.end.min(chunk_end);
+        let (lo, hi) = (seg_start - chunk_start, seg_end - chunk_start);
+        if !chunk.is_char_boundary(lo) || !chunk.is_char_boundary(hi) {
+            continue; // ranges align to chars; skip defensively if they don't
+        }
+        if seg_start > cursor {
+            append(job, &chunk[cursor - chunk_start..lo], font, color, None);
+        }
+        let bg = if active == Some(i) {
+            ACTIVE_BG
+        } else {
+            HIGHLIGHT_BG
+        };
+        append(job, &chunk[lo..hi], font, color, Some(bg));
+        cursor = seg_end;
     }
-    if start < text.len() {
-        append(job, &text[start..], font, color, None);
+    if cursor < chunk_end {
+        append(job, &chunk[cursor - chunk_start..], font, color, None);
     }
 }
 
-fn append(job: &mut LayoutJob, text: &str, font: &FontId, color: Color32, background: Option<Color32>) {
+fn append(
+    job: &mut LayoutJob,
+    text: &str,
+    font: &FontId,
+    color: Color32,
+    background: Option<Color32>,
+) {
     job.append(
         text,
         0.0,
@@ -156,6 +192,8 @@ fn parse_csi(s: &str, current: Color32, base: Color32) -> Option<(usize, Color32
 
 #[cfg(test)]
 mod tests {
+    // The `&[a..b]` highlight inputs are deliberate single-element range slices.
+    #![allow(clippy::single_range_in_vec_init)]
     use super::*;
 
     #[test]
@@ -171,7 +209,13 @@ mod tests {
     #[test]
     fn to_job_splits_into_colored_runs() {
         let base = Color32::BLACK;
-        let job = to_job("\x1b[31mred\x1b[0m tail", FontId::default(), base, None);
+        let job = to_job(
+            "\x1b[31mred\x1b[0m tail",
+            FontId::default(),
+            base,
+            &[],
+            None,
+        );
         assert_eq!(job.text, "red tail");
         assert_eq!(job.sections.len(), 2);
         assert_eq!(job.sections[0].format.color, STANDARD[1]); // red
@@ -180,14 +224,26 @@ mod tests {
 
     #[test]
     fn to_job_plain_text_is_single_run() {
-        let job = to_job("no colors here", FontId::default(), Color32::BLACK, None);
+        let job = to_job(
+            "no colors here",
+            FontId::default(),
+            Color32::BLACK,
+            &[],
+            None,
+        );
         assert_eq!(job.sections.len(), 1);
         assert_eq!(job.text, "no colors here");
     }
 
     #[test]
-    fn to_job_highlights_query_case_insensitively() {
-        let job = to_job("hello WORLD", FontId::default(), Color32::BLACK, Some("world"));
+    fn to_job_highlights_given_range() {
+        let job = to_job(
+            "hello WORLD",
+            FontId::default(),
+            Color32::BLACK,
+            &[6..11],
+            None,
+        );
         assert_eq!(job.text, "hello WORLD");
         assert_eq!(job.sections.len(), 2); // "hello " + highlighted "WORLD"
         assert_eq!(job.sections[0].format.background, Color32::TRANSPARENT);
@@ -195,10 +251,40 @@ mod tests {
     }
 
     #[test]
-    fn to_job_highlights_non_ascii_matches() {
-        // Hangul (no case distinction) must still highlight — the old ASCII-only
-        // guard silently skipped these lines.
-        let job = to_job("빌드 완료됨", FontId::default(), Color32::BLACK, Some("완료"));
+    fn to_job_active_range_uses_stronger_bg() {
+        let job = to_job("abcd", FontId::default(), Color32::BLACK, &[0..2], Some(0));
+        assert_eq!(job.sections[0].format.background, ACTIVE_BG);
+    }
+
+    #[test]
+    fn to_job_highlights_across_color_boundary() {
+        // stripped = "abcd"; range 1..3 ("bc") straddles the red -> reset boundary.
+        let base = Color32::BLACK;
+        let job = to_job(
+            "\x1b[31mab\x1b[0mcd",
+            FontId::default(),
+            base,
+            &[1..3],
+            None,
+        );
+        assert_eq!(job.text, "abcd");
+        assert_eq!(job.sections.len(), 4); // a | b | c | d
+        assert_eq!(job.sections[1].format.background, HIGHLIGHT_BG);
+        assert_eq!(job.sections[1].format.color, STANDARD[1]); // "b" still red
+        assert_eq!(job.sections[2].format.background, HIGHLIGHT_BG);
+        assert_eq!(job.sections[2].format.color, base); // "c" after the reset
+    }
+
+    #[test]
+    fn to_job_highlights_non_ascii_range() {
+        // "빌드 " is 7 bytes, so "완료" spans 7..13.
+        let job = to_job(
+            "빌드 완료됨",
+            FontId::default(),
+            Color32::BLACK,
+            &[7..13],
+            None,
+        );
         assert_eq!(job.text, "빌드 완료됨");
         assert_eq!(job.sections.len(), 3); // "빌드 " + "완료" + "됨"
         assert_eq!(job.sections[1].format.background, HIGHLIGHT_BG);

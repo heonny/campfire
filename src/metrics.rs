@@ -26,13 +26,19 @@ impl Default for Metrics {
 
 impl Metrics {
     pub fn new() -> Self {
-        Self { system: System::new(), refreshed_at: None, values: HashMap::new() }
+        Self {
+            system: System::new(),
+            refreshed_at: None,
+            values: HashMap::new(),
+        }
     }
 
     /// Recompute usage if the refresh interval has elapsed and something is
     /// running. Cheap no-op otherwise, so it is safe to call every frame.
     pub fn refresh(&mut self, running: &HashMap<String, RunningProcess>) {
-        let due = self.refreshed_at.is_none_or(|at| at.elapsed() >= REFRESH_INTERVAL);
+        let due = self
+            .refreshed_at
+            .is_none_or(|at| at.elapsed() >= REFRESH_INTERVAL);
         if !due || !running.values().any(|p| !p.is_terminal()) {
             return;
         }

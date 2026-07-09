@@ -22,8 +22,8 @@ use command_group::{CommandGroup, GroupChild};
 use command_group::{Signal, UnixChildExt};
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -126,7 +126,10 @@ impl RunningProcess {
         W: Fn() + Send + Sync + 'static,
     {
         Self {
-            handle: ProcessHandle::Adopted { start_time: entry.start_time, last_liveness: None },
+            handle: ProcessHandle::Adopted {
+                start_time: entry.start_time,
+                last_liveness: None,
+            },
             logs: LogBuffer::default(),
             status: Status::Running,
             started_at: SystemTime::UNIX_EPOCH + Duration::from_secs(entry.start_time),
@@ -183,7 +186,11 @@ impl RunningProcess {
         }
 
         // Adopted: poll liveness by PID (no exit code available without a handle).
-        if let ProcessHandle::Adopted { start_time, last_liveness } = &mut self.handle {
+        if let ProcessHandle::Adopted {
+            start_time,
+            last_liveness,
+        } = &mut self.handle
+        {
             let due = last_liveness.is_none_or(|at| at.elapsed() >= ADOPTED_LIVENESS_INTERVAL);
             if due {
                 *last_liveness = Some(Instant::now());
@@ -377,7 +384,10 @@ mod tests {
 
         assert!(proc.is_terminal(), "echo did not exit in time");
         assert_eq!(proc.status(), &Status::Stopped); // exit 0, not user-stopped
-        let found = proc.logs().iter().any(|l| l.text.contains("campfire-marker"));
+        let found = proc
+            .logs()
+            .iter()
+            .any(|l| l.text.contains("campfire-marker"));
         assert!(found, "marker not captured; {} lines", proc.logs().len());
     }
 

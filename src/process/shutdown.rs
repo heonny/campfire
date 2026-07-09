@@ -25,7 +25,9 @@ fn groups() -> &'static Mutex<HashSet<u32>> {
 /// Lock the registry, tolerating poisoning: it holds only PIDs, so a panic
 /// elsewhere must never leave the shutdown safety net permanently disabled.
 fn locked() -> std::sync::MutexGuard<'static, HashSet<u32>> {
-    groups().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    groups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Start tracking `leader_pid` for signal-time cleanup (call on spawn/adopt).

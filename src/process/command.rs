@@ -155,8 +155,14 @@ mod tests {
             ("A".to_string(), "from-file".to_string()),
         ];
         let inline = vec![
-            EnvVar { key: "A".into(), value: "from-inline".into() },
-            EnvVar { key: "B".into(), value: "b".into() },
+            EnvVar {
+                key: "A".into(),
+                value: "from-inline".into(),
+            },
+            EnvVar {
+                key: "B".into(),
+                value: "b".into(),
+            },
         ];
         let env = merge_env(&file, &inline, Some(8080));
         assert_eq!(env.get("A").map(String::as_str), Some("from-inline"));
@@ -167,7 +173,10 @@ mod tests {
 
     #[test]
     fn without_config_port_inline_port_survives() {
-        let inline = vec![EnvVar { key: "PORT".into(), value: "3000".into() }];
+        let inline = vec![EnvVar {
+            key: "PORT".into(),
+            value: "3000".into(),
+        }];
         let env = merge_env(&[], &inline, None);
         assert_eq!(env.get("PORT").map(String::as_str), Some("3000"));
         assert_eq!(env.get("SERVER_PORT"), None); // not injected without a configured port
@@ -190,7 +199,10 @@ mod tests {
         let mut config = ServerConfig::from_preset("api", "/srv/api", Preset::NextJs);
         config.command = "npm run dev".into();
         config.port = Some(3000);
-        config.env.push(EnvVar { key: "NODE_ENV".into(), value: "development".into() });
+        config.env.push(EnvVar {
+            key: "NODE_ENV".into(),
+            value: "development".into(),
+        });
 
         let cmd = build_command(&config).unwrap();
         assert_eq!(cmd.get_current_dir(), Some(Path::new("/srv/api")));
@@ -200,7 +212,10 @@ mod tests {
             .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
             .collect();
         assert_eq!(envs.get("PORT").map(String::as_str), Some("3000"));
-        assert_eq!(envs.get("NODE_ENV").map(String::as_str), Some("development"));
+        assert_eq!(
+            envs.get("NODE_ENV").map(String::as_str),
+            Some("development")
+        );
 
         let args: Vec<OsString> = cmd.get_args().map(|a| a.to_owned()).collect();
         assert!(args.contains(&OsString::from("npm run dev")));

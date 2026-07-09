@@ -284,10 +284,46 @@ fn section_label(ui: &mut egui::Ui, text: &str) {
     ui.add_space(6.0);
 }
 
+/// A [`text_input`] sized to fill the available width — for dialog fields that
+/// should track the modal width instead of a fixed size. Kept local to the
+/// editor so it doesn't depend on the shared toolbar helpers (reworked in
+/// parallel). Subtracts the frame's horizontal margin so the bordered box, not
+/// just the text, fills the row.
+fn fill_input(ui: &mut egui::Ui, text: &mut String, hint: &str) -> egui::Response {
+    let width = (ui.available_width() - 16.0).max(40.0);
+    text_input(ui, text, hint, width)
+}
+
+/// A path field: an input that fills the row with a trailing Browse… button.
+/// Returns `(field_has_focus, browse_clicked)` so the caller can run the right
+/// file dialog and gate detection while the field is being typed in. The button
+/// is laid out first (right-to-left) so the input fills whatever width remains.
+fn path_field(ui: &mut egui::Ui, value: &mut String, hint: &str) -> (bool, bool) {
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let browse = ui.add(text_button("Browse…")).clicked();
+            let mut field = fill_input(ui, value, hint);
+            // A long absolute path only shows its head in the box; surface the full
+            // value (usually the more telling tail) as a hover tooltip so it needn't
+            // be dragged to read.
+            if !value.trim().is_empty() {
+                field = field.on_hover_text(value.clone());
+            }
+            (field.has_focus(), browse)
+        })
+        .inner
+    })
+    .inner
+}
+
 /// Render the form and report the user's action.
 pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
     let mut outcome = EditorOutcome::None;
-    ui.set_min_width(460.0);
+    // Fix the dialog width so long paths / detected plugin lists fill the fields
+    // and wrap, instead of stretching the modal off-screen.
+    let width = 520.0;
+    ui.set_min_width(width);
+    ui.set_max_width(width);
     ui.heading(if form.editing_id.is_some() {
         "Edit project"
     } else {
@@ -296,33 +332,39 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
     ui.weak("Configure how this project runs and its environment.");
     ui.add_space(14.0);
 
-    egui::Grid::new("editor_grid")
-        .num_columns(2)
-        .spacing([16.0, 10.0])
+    // The form body scrolls when it is taller than the window, so the heading
+    // above and the action buttons below stay put — Save/Cancel remain reachable
+    // on a short screen instead of being clipped off the bottom.
+    let body_max = (ui.ctx().input(|i| i.content_rect().height()) - 260.0).max(180.0);
+    egui::ScrollArea::vertical()
+        .max_height(body_max)
+        .auto_shrink([false, true])
         .show(ui, |ui| {
-            ui.label("Name");
-            text_input(ui, &mut form.name, "my-server", 280.0);
-            ui.end_row();
+            egui::Grid::new("editor_grid")
+                .num_columns(2)
+                .spacing([16.0, 10.0])
+                .show(ui, |ui| {
+                    ui.label("Name");
+                    fill_input(ui, &mut form.name, "my-server");
+                    ui.end_row();
 
-            ui.label("Preset");
-            let mut chosen = form.preset;
-            egui::ComboBox::from_id_salt("preset")
-                .selected_text(form.preset.label())
-                .show_ui(ui, |ui| {
-                    for preset in Preset::ALL {
-                        ui.selectable_value(&mut chosen, preset, preset.label());
+                    ui.label("Preset");
+                    let mut chosen = form.preset;
+                    egui::ComboBox::from_id_salt("preset")
+                        .selected_text(form.preset.label())
+                        .show_ui(ui, |ui| {
+                            for preset in Preset::ALL {
+                                ui.selectable_value(&mut chosen, preset, preset.label());
+                            }
+                        });
+                    if chosen != form.preset {
+                        form.apply_preset(chosen);
                     }
-                });
-            if chosen != form.preset {
-                form.apply_preset(chosen);
-            }
-            ui.end_row();
+                    ui.end_row();
 
-            ui.label("Working dir");
-            let cwd_focused = ui
-                .horizontal(|ui| {
-                    let resp = text_input(ui, &mut form.cwd, "", 210.0);
-                    if ui.add(text_button("Browse…")).clicked() {
+                    ui.label("Working dir");
+                    let (cwd_focused, browse) = path_field(ui, &mut form.cwd, "");
+                    if browse {
                         let mut dialog = rfd::FileDialog::new();
                         if !form.cwd.trim().is_empty() {
                             dialog = dialog.set_directory(form.cwd.trim());
@@ -332,27 +374,23 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
                             ui.ctx().request_repaint(); // render the Scripts row next frame
                         }
                     }
-                    resp.has_focus()
-                })
-                .inner;
-            ui.end_row();
+                    ui.end_row();
 
-            // Detect the project only while the path field isn't being typed in:
-            // reading package.json on every keystroke could stall on a slow mount.
-            // This still fires on open, after Browse, and when the field blurs.
-            if !cwd_focused {
-                form.refresh_detection();
-            }
+                    // Detect the project only while the path field isn't being typed in:
+                    // reading package.json on every keystroke could stall on a slow mount.
+                    // This still fires on open, after Browse, and when the field blurs.
+                    if !cwd_focused {
+                        form.refresh_detection();
+                    }
 
-            // Gradle (Spring Boot preset): point at a build file — auto-located
-            // under `cwd`, or Browse to a specific one — then pick a task from the
-            // plugins it applies. Picking fills Command with `./gradlew <task>`.
-            if form.preset == Preset::SpringBoot {
-                ui.label("Gradle file");
-                let gradle_focused = ui
-                    .horizontal(|ui| {
-                        let resp = text_input(ui, &mut form.gradle_file, "build.gradle", 210.0);
-                        if ui.add(text_button("Browse…")).clicked() {
+                    // Gradle (Spring Boot preset): point at a build file — auto-located
+                    // under `cwd`, or Browse to a specific one — then pick a task from the
+                    // plugins it applies. Picking fills Command with `./gradlew <task>`.
+                    if form.preset == Preset::SpringBoot {
+                        ui.label("Gradle file");
+                        let (gradle_focused, browse) =
+                            path_field(ui, &mut form.gradle_file, "build.gradle");
+                        if browse {
                             let mut dialog = rfd::FileDialog::new();
                             if let Some(dir) = form.gradle_dialog_dir() {
                                 dialog = dialog.set_directory(dir);
@@ -362,180 +400,191 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
                                 ui.ctx().request_repaint(); // parse + render Tasks next frame
                             }
                         }
-                        resp.has_focus()
-                    })
-                    .inner;
-                ui.end_row();
+                        ui.end_row();
 
-                // Re-parse only while the path field isn't being typed in, same as
-                // the Node detection above.
-                if !gradle_focused {
-                    form.refresh_gradle();
-                }
-
-                let mut picked: Option<(String, Option<u16>)> = None;
-                if let Some(project) = &form.detected_gradle
-                    && !project.tasks.is_empty()
-                {
-                    ui.label("Tasks");
-                    ui.horizontal(|ui| {
-                        // Exact match highlights the picked task; hand-editing
-                        // Command falls back to the placeholder (as with Scripts).
-                        let current = project
-                            .tasks
-                            .iter()
-                            .find(|t| form.command == gradle::task_command(&t.name))
-                            .map(|t| t.name.clone());
-                        egui::ComboBox::from_id_salt("gradle_tasks")
-                            .selected_text(
-                                current
-                                    .clone()
-                                    .unwrap_or_else(|| "Select a task…".to_string()),
-                            )
-                            .show_ui(ui, |ui| {
-                                for t in &project.tasks {
-                                    let selected = current.as_deref() == Some(t.name.as_str());
-                                    if ui
-                                        .selectable_label(
-                                            selected,
-                                            format!("{}  —  {}", t.name, t.description),
-                                        )
-                                        .clicked()
-                                    {
-                                        picked = Some((
-                                            gradle::task_command(&t.name),
-                                            project.port_hint,
-                                        ));
-                                    }
-                                }
-                            });
-                        if !project.plugins.is_empty() {
-                            ui.weak(format!("plugins: {}", project.plugins.join(", ")));
+                        // Re-parse only while the path field isn't being typed in, same as
+                        // the Node detection above.
+                        if !gradle_focused {
+                            form.refresh_gradle();
                         }
-                    });
-                    ui.end_row();
-                }
-                if let Some((command, port_hint)) = picked {
-                    form.command = command;
-                    if form.port.trim().is_empty()
-                        && let Some(port) = port_hint
-                    {
-                        form.port = port.to_string();
-                    }
-                }
-            }
 
-            // Scripts: shown only when `cwd` holds a Node project. Picking one
-            // fills Command with `<pm> run <script>` and, when Port is still
-            // blank, seeds it from a recognized framework (next/vite).
-            let mut picked: Option<(String, Option<u16>)> = None;
-            if let Some(project) = &form.detected
-                && !project.scripts.is_empty()
-            {
-                ui.label("Scripts");
-                ui.horizontal(|ui| {
-                    // Exact match only: highlights the picked script, but once the
-                    // user hand-edits Command (e.g. appends flags) it intentionally
-                    // falls back to the placeholder rather than guessing.
-                    let current = project
-                        .scripts
-                        .iter()
-                        .find(|(name, _)| form.command == project.manager.run(name))
-                        .map(|(name, _)| name.clone());
-                    egui::ComboBox::from_id_salt("scripts")
-                        .selected_text(
-                            current
-                                .clone()
-                                .unwrap_or_else(|| "Select a script…".to_string()),
-                        )
-                        .show_ui(ui, |ui| {
-                            for (name, raw) in &project.scripts {
-                                let selected = current.as_deref() == Some(name.as_str());
-                                if ui
-                                    .selectable_label(selected, format!("{name}  —  {raw}"))
-                                    .clicked()
-                                {
-                                    picked = Some((project.manager.run(name), project.port_hint));
-                                }
+                        let mut picked: Option<(String, Option<u16>)> = None;
+                        if let Some(project) = &form.detected_gradle
+                            && !project.tasks.is_empty()
+                        {
+                            ui.label("Tasks");
+                            // Exact match highlights the picked task; hand-editing
+                            // Command falls back to the placeholder (as with Scripts).
+                            let current = project
+                                .tasks
+                                .iter()
+                                .find(|t| form.command == gradle::task_command(&t.name))
+                                .map(|t| t.name.clone());
+                            egui::ComboBox::from_id_salt("gradle_tasks")
+                                .selected_text(
+                                    current
+                                        .clone()
+                                        .unwrap_or_else(|| "Select a task…".to_string()),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for t in &project.tasks {
+                                        let selected = current.as_deref() == Some(t.name.as_str());
+                                        if ui
+                                            .selectable_label(
+                                                selected,
+                                                format!("{}  —  {}", t.name, t.description),
+                                            )
+                                            .clicked()
+                                        {
+                                            picked = Some((
+                                                gradle::task_command(&t.name),
+                                                project.port_hint,
+                                            ));
+                                        }
+                                    }
+                                });
+                            ui.end_row();
+
+                            // Detected plugins on their own row so a long list wraps
+                            // within the dialog width instead of stretching the modal.
+                            if !project.plugins.is_empty() {
+                                ui.label("");
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(format!(
+                                            "plugins: {}",
+                                            project.plugins.join(", ")
+                                        ))
+                                        .weak(),
+                                    )
+                                    .wrap(),
+                                );
+                                ui.end_row();
                             }
+                        }
+                        if let Some((command, port_hint)) = picked {
+                            form.command = command;
+                            if form.port.trim().is_empty()
+                                && let Some(port) = port_hint
+                            {
+                                form.port = port.to_string();
+                            }
+                        }
+                    }
+
+                    // Scripts: shown only when `cwd` holds a Node project. Picking one
+                    // fills Command with `<pm> run <script>` and, when Port is still
+                    // blank, seeds it from a recognized framework (next/vite).
+                    let mut picked: Option<(String, Option<u16>)> = None;
+                    if let Some(project) = &form.detected
+                        && !project.scripts.is_empty()
+                    {
+                        ui.label("Scripts");
+                        ui.horizontal(|ui| {
+                            // Exact match only: highlights the picked script, but once the
+                            // user hand-edits Command (e.g. appends flags) it intentionally
+                            // falls back to the placeholder rather than guessing.
+                            let current = project
+                                .scripts
+                                .iter()
+                                .find(|(name, _)| form.command == project.manager.run(name))
+                                .map(|(name, _)| name.clone());
+                            egui::ComboBox::from_id_salt("scripts")
+                                .selected_text(
+                                    current
+                                        .clone()
+                                        .unwrap_or_else(|| "Select a script…".to_string()),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for (name, raw) in &project.scripts {
+                                        let selected = current.as_deref() == Some(name.as_str());
+                                        if ui
+                                            .selectable_label(selected, format!("{name}  —  {raw}"))
+                                            .clicked()
+                                        {
+                                            picked = Some((
+                                                project.manager.run(name),
+                                                project.port_hint,
+                                            ));
+                                        }
+                                    }
+                                });
+                            ui.weak(format!("via {}", project.manager.as_str()));
                         });
-                    ui.weak(format!("via {}", project.manager.as_str()));
+                        ui.end_row();
+                    }
+                    if let Some((command, port_hint)) = picked {
+                        form.command = command;
+                        if form.port.trim().is_empty()
+                            && let Some(port) = port_hint
+                        {
+                            form.port = port.to_string();
+                        }
+                    }
+
+                    ui.label("Command");
+                    fill_input(ui, &mut form.command, "npm run dev");
+                    ui.end_row();
+
+                    ui.label("Port");
+                    text_input(ui, &mut form.port, "3000", 100.0);
+                    ui.end_row();
+
+                    ui.label(".env file");
+                    let (_, browse) = path_field(ui, &mut form.env_file, "");
+                    if browse {
+                        let mut dialog = rfd::FileDialog::new();
+                        if !form.cwd.trim().is_empty() {
+                            dialog = dialog.set_directory(form.cwd.trim());
+                        }
+                        if let Some(path) = dialog.pick_file() {
+                            form.env_file = path.to_string_lossy().into_owned();
+                        }
+                    }
+                    ui.end_row();
+
+                    ui.label("Shell");
+                    fill_input(ui, &mut form.shell, "(default login shell)");
+                    ui.end_row();
                 });
-                ui.end_row();
-            }
-            if let Some((command, port_hint)) = picked {
-                form.command = command;
-                if form.port.trim().is_empty()
-                    && let Some(port) = port_hint
-                {
-                    form.port = port.to_string();
-                }
-            }
 
-            ui.label("Command");
-            text_input(ui, &mut form.command, "npm run dev", 280.0);
-            ui.end_row();
-
-            ui.label("Port");
-            text_input(ui, &mut form.port, "3000", 100.0);
-            ui.end_row();
-
-            ui.label(".env file");
-            ui.horizontal(|ui| {
-                text_input(ui, &mut form.env_file, "", 210.0);
-                if ui.add(text_button("Browse…")).clicked() {
-                    let mut dialog = rfd::FileDialog::new();
-                    if !form.cwd.trim().is_empty() {
-                        dialog = dialog.set_directory(form.cwd.trim());
+            ui.add_space(16.0);
+            section_label(ui, "Environment variables");
+            let mut remove: Option<usize> = None;
+            for (index, (key, value)) in form.env.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    text_input(ui, key, "KEY", 140.0);
+                    ui.label("=");
+                    text_input(ui, value, "value", 170.0);
+                    if ui.add(text_button("−")).clicked() {
+                        remove = Some(index);
                     }
-                    if let Some(path) = dialog.pick_file() {
-                        form.env_file = path.to_string_lossy().into_owned();
-                    }
-                }
+                });
+                ui.add_space(4.0);
+            }
+            if let Some(index) = remove {
+                form.env.remove(index);
+            }
+            if ui.add(text_button("+ add variable")).clicked() {
+                form.env.push((String::new(), String::new()));
+            }
+
+            ui.add_space(16.0);
+            section_label(ui, "Command preview");
+            crate::theme::inset_frame().show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.add(egui::Label::new(egui::RichText::new(form.preview()).monospace()).wrap());
             });
-            ui.end_row();
-
-            ui.label("Shell");
-            text_input(ui, &mut form.shell, "(default login shell)", 280.0);
-            ui.end_row();
         });
 
-    ui.add_space(16.0);
-    section_label(ui, "Environment variables");
-    let mut remove: Option<usize> = None;
-    for (index, (key, value)) in form.env.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
-            text_input(ui, key, "KEY", 140.0);
-            ui.label("=");
-            text_input(ui, value, "value", 170.0);
-            if ui.add(text_button("−")).clicked() {
-                remove = Some(index);
-            }
-        });
-        ui.add_space(4.0);
-    }
-    if let Some(index) = remove {
-        form.env.remove(index);
-    }
-    if ui.add(text_button("+ add variable")).clicked() {
-        form.env.push((String::new(), String::new()));
-    }
-
-    ui.add_space(16.0);
-    section_label(ui, "Command preview");
-    crate::theme::inset_frame().show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.add(egui::Label::new(
-            egui::RichText::new(form.preview()).monospace(),
-        ));
-    });
-
+    // Sticky footer: validation errors and the action buttons sit below the
+    // scrolling body, so they stay visible however tall the form grows.
     if let Some(error) = &form.error {
         ui.add_space(6.0);
         ui.colored_label(ui.visuals().error_fg_color, error);
     }
 
-    ui.add_space(20.0);
+    ui.add_space(12.0);
     ui.horizontal(|ui| {
         if let Some(id) = &form.editing_id {
             let delete =

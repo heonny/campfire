@@ -102,11 +102,7 @@ pub struct ServerConfig {
 
 impl ServerConfig {
     /// Create a new server seeded from `preset`, with a freshly generated id.
-    pub fn from_preset(
-        name: impl Into<String>,
-        cwd: impl Into<PathBuf>,
-        preset: Preset,
-    ) -> Self {
+    pub fn from_preset(name: impl Into<String>, cwd: impl Into<PathBuf>, preset: Preset) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             name: name.into(),
@@ -188,7 +184,10 @@ mod tests {
     #[test]
     fn roundtrips_through_toml() {
         let mut s = ServerConfig::from_preset("api", "/srv/api", Preset::SpringBoot);
-        s.env.push(EnvVar { key: "PROFILE".into(), value: "dev".into() });
+        s.env.push(EnvVar {
+            key: "PROFILE".into(),
+            value: "dev".into(),
+        });
         let text = toml::to_string(&s).unwrap();
         let back: ServerConfig = toml::from_str(&text).unwrap();
         assert_eq!(s, back);
@@ -206,7 +205,10 @@ mod tests {
         let s = ServerConfig::from_preset("api", "/srv/api", Preset::Custom);
         assert_eq!(s.port, None);
         let text = toml::to_string(&s).unwrap();
-        assert!(!text.contains("port"), "port key should be omitted when None:\n{text}");
+        assert!(
+            !text.contains("port"),
+            "port key should be omitted when None:\n{text}"
+        );
     }
 
     #[test]

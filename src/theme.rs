@@ -16,6 +16,11 @@ pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE3, 0xE3, 0xE2);
 pub const CARD_HOVER_FILL: Color32 = Color32::from_rgb(0xEB, 0xEB, 0xEA);
 pub const INSET_FILL: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xE8);
 
+/// The soft grey a chromeless icon button fills with on hover. Reused as the
+/// follow toggle's "on" fill so an engaged toggle reads as the same pressed box
+/// a hover shows (see `icon_toggle_button`).
+pub const BUTTON_HOVER_FILL: Color32 = Color32::from_rgb(0xE1, 0xE1, 0xE0);
+
 /// The app canvas: a warm grey that the white section blocks float on.
 /// Sections separate by surface contrast, not divider lines.
 pub const CANVAS_FILL: Color32 = Color32::from_rgb(0xF0, 0xEF, 0xEB);
@@ -159,7 +164,7 @@ fn build_visuals() -> Visuals {
         widget.bg_stroke = Stroke::NONE;
     }
     visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0xEA, 0xEA, 0xE9);
-    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(0xE1, 0xE1, 0xE0);
+    visuals.widgets.hovered.weak_bg_fill = BUTTON_HOVER_FILL;
     visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0xD8, 0xD8, 0xD7);
 
     // Separators and panel dividers: a soft hairline, not the default medium grey.

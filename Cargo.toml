@@ -16,6 +16,10 @@ dotenvy = "0.15.7"
 eframe = "0.35.0"
 egui = "0.35.0"
 egui_extras = { version = "0.35.0", features = ["svg"] }
+# Log find/grep matching (case / whole-word / regex). regex-lite over regex:
+# no aho-corasick/SIMD deps, so it keeps the binary small — plenty fast for
+# matching short log lines.
+regex-lite = "0.1"
 rfd = "0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
 # preserve_order keeps package.json scripts in declaration order (dev/build/...)
