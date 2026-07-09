@@ -330,7 +330,7 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
         "Add project"
     });
     ui.weak("Configure how this project runs and its environment.");
-    ui.add_space(14.0);
+    ui.add_space(12.0);
 
     // The form body scrolls when it is taller than the window, so the heading
     // above and the action buttons below stay put — Save/Cancel remain reachable
@@ -548,7 +548,7 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
                     ui.end_row();
                 });
 
-            ui.add_space(16.0);
+            ui.add_space(12.0);
             section_label(ui, "Environment variables");
             let mut remove: Option<usize> = None;
             for (index, (key, value)) in form.env.iter_mut().enumerate() {
@@ -569,7 +569,7 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
                 form.env.push((String::new(), String::new()));
             }
 
-            ui.add_space(16.0);
+            ui.add_space(12.0);
             section_label(ui, "Command preview");
             crate::theme::inset_frame().show(ui, |ui| {
                 ui.set_width(ui.available_width());

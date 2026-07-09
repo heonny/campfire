@@ -85,7 +85,7 @@ pub fn modal_frame() -> egui::Frame {
         .fill(Color32::WHITE)
         .stroke(Stroke::new(1.0, CARD_BORDER))
         .corner_radius(CornerRadius::same(12))
-        .inner_margin(Margin::same(22))
+        .inner_margin(Margin::same(20))
         .shadow(egui::Shadow {
             offset: [0, 8],
             blur: 32,

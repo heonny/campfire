@@ -441,18 +441,18 @@ impl eframe::App for CampfireApp {
 
         // Every section is a white rounded block on the grey canvas: the panel
         // frames carry the canvas fill plus the outer margins (12 at the window
-        // edge, 5 + 5 = 10 between blocks), and their divider lines are off.
+        // edge, 4 + 4 = 8 between blocks), and their divider lines are off.
         egui::Panel::top("top_bar")
             .frame(theme::canvas_frame(egui::Margin {
                 left: 12,
                 right: 12,
                 top: 12,
-                bottom: 5,
+                bottom: 4,
             }))
             .show_separator_line(false)
             .show(ui, |ui| {
                 theme::block_frame()
-                    .inner_margin(egui::Margin::symmetric(14, 8))
+                    .inner_margin(egui::Margin::symmetric(12, 8))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
@@ -497,8 +497,8 @@ impl eframe::App for CampfireApp {
                 .size_range(180.0..=420.0)
                 .frame(theme::canvas_frame(egui::Margin {
                     left: 12,
-                    right: 5,
-                    top: 5,
+                    right: 4,
+                    top: 4,
                     bottom: 12,
                 }))
                 .show_separator_line(false)
@@ -506,9 +506,9 @@ impl eframe::App for CampfireApp {
         });
         egui::CentralPanel::default()
             .frame(theme::canvas_frame(egui::Margin {
-                left: 5,
+                left: 4,
                 right: 12,
-                top: 5,
+                top: 4,
                 bottom: 12,
             }))
             .show(ui, |ui| {
