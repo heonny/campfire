@@ -32,15 +32,19 @@ pub fn show(
     let active = proc.map(|p| !p.is_terminal()).unwrap_or(false);
     let recovered = proc.map(|p| p.is_recovered()).unwrap_or(false);
 
+    // The whole detail pane is one block: the header (status, controls, command)
+    // and the log body below share a surface instead of floating as two separate
+    // cards. The block fills the central panel so the log's bottom control bar
+    // sits at the pane's foot.
     theme::block_frame().show(ui, |ui| {
         ui.set_width(ui.available_width());
+        ui.set_min_height(ui.available_height());
         header_row(ui, server, &status, active, recovered, action);
         port_warnings(ui, view, server, active);
         command_block(ui, server);
+        ui.add_space(8.0);
+        log_body(ui, server, proc, recovered, log_view_state, action);
     });
-
-    ui.add_space(10.0);
-    log_section(ui, server, proc, recovered, log_view_state, action);
 }
 
 /// The top row of the header card: status dot, name, port, status text, and the
@@ -145,13 +149,14 @@ fn command_block(ui: &mut egui::Ui, server: &ServerConfig) {
     });
 }
 
-/// The log view. It renders the same whether or not the server is running — when
-/// there is no process it renders over an empty buffer, so the panel never
-/// collapses to a bare placeholder (the bottom control bar keeps it grounded).
-/// The one exception is an adopted (recovered) process: it has no live pipe to
-/// stream or clear, so it explains that instead of offering controls that can't
-/// do anything.
-fn log_section(
+/// The log body, rendered directly into the shared detail block (no frame of its
+/// own) so it fills the space under the header down to its pinned control bar. It
+/// renders the same whether or not the server is running — with no process it
+/// renders over an empty buffer, so the pane never collapses to a bare
+/// placeholder (the bottom control bar keeps it grounded). The one exception is
+/// an adopted (recovered) process: it has no live pipe to stream or clear, so it
+/// explains that instead of offering controls that can't do anything.
+fn log_body(
     ui: &mut egui::Ui,
     server: &ServerConfig,
     proc: Option<&RunningProcess>,
@@ -160,27 +165,16 @@ fn log_section(
     action: &mut Option<Action>,
 ) {
     if recovered {
-        theme::block_frame().show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.set_min_height(ui.available_height());
-            ui.weak(
-                "Recovered from a previous session — live logs aren't available. \
-                 Restart to stream logs.",
-            );
-        });
+        ui.weak(
+            "Recovered from a previous session — live logs aren't available. \
+             Restart to stream logs.",
+        );
         return;
     }
 
     let empty = LogBuffer::default();
     let logs = proc.map(|p| p.logs()).unwrap_or(&empty);
-    let clear = theme::block_frame()
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.set_min_height(ui.available_height());
-            log_view::show(ui, log_view_state, logs)
-        })
-        .inner;
-    if clear {
+    if log_view::show(ui, log_view_state, logs) {
         *action = Some(Action::ClearLogs(server.id.clone()));
     }
 }
