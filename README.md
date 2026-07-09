@@ -6,6 +6,8 @@
   A small, native desktop app for running and managing multiple local dev servers.
 </p>
 
+<p align="center"><b>English</b> · <a href="README_KO.md">한국어</a></p>
+
 Start, stop, and restart servers written in any language or framework, watch
 their logs live, and catch port clashes — all from one window. Built in Rust
 with egui, so it's a single lightweight binary (~9 MB) with no runtime to
@@ -20,7 +22,9 @@ install.
 - **Per-server config** — working directory, port, environment variables, a
   `.env` file, and an optional shell override
 - **Lifecycle** — start / stop / restart with whole-process-tree shutdown
-  (graceful `SIGTERM`, then `SIGKILL`), so nothing is orphaned
+  (graceful `SIGINT`, a grace period, then `SIGKILL`), so nothing is orphaned;
+  press Stop again to force-quit immediately
+- **Reorder** — drag project cards up or down to change their order; it's saved
 - **Live logs** — ANSI colors rendered, plus search, follow (tail), and clear,
   over a bounded 5 MiB ring buffer
 - **Port awareness** — warns when a port is already in use or assigned to two
