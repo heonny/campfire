@@ -6,6 +6,7 @@
 
 mod ansi;
 mod fs_util;
+mod gradle;
 mod metrics;
 mod model;
 mod port;

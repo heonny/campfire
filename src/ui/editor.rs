@@ -5,10 +5,11 @@
 //! form and reports what the user did via [`EditorOutcome`].
 
 use super::{primary_button, text_button, text_input};
+use crate::gradle::{self, GradleProject};
 use crate::model::{EnvVar, Preset, ServerConfig};
 use crate::project::{NodeProject, detect_node_project};
 use eframe::egui;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// What the user did with the editor this frame.
@@ -40,6 +41,20 @@ pub struct EditorForm {
     /// The `cwd` value detection last ran for, so `package.json` is re-read only
     /// when the path actually changes — not on every frame.
     detected_for: String,
+    /// Path to the Gradle build script feeding the Tasks picker (Spring Boot
+    /// preset only). Auto-located under `cwd`, but user-overridable to point at a
+    /// specific `build.gradle`. Transient UI state — never persisted.
+    gradle_file: String,
+    /// The last value auto-located into `gradle_file`. Lets `refresh_detection`
+    /// tell an auto-fill apart from a manual Browse, so a user's override is
+    /// preserved across incidental `cwd` edits rather than silently clobbered.
+    gradle_file_auto: String,
+    /// Detected Gradle project for the current `gradle_file`, refreshed lazily by
+    /// [`EditorForm::refresh_gradle`].
+    detected_gradle: Option<GradleProject>,
+    /// The `gradle_file` value the parse last ran for, so the build script is
+    /// re-read only when the path changes.
+    detected_gradle_for: String,
 }
 
 impl EditorForm {
@@ -58,6 +73,10 @@ impl EditorForm {
             error: None,
             detected: None,
             detected_for: String::new(),
+            gradle_file: String::new(),
+            gradle_file_auto: String::new(),
+            detected_gradle: None,
+            detected_gradle_for: String::new(),
         }
     }
 
@@ -84,6 +103,10 @@ impl EditorForm {
             error: None,
             detected: None,
             detected_for: String::new(),
+            gradle_file: String::new(),
+            gradle_file_auto: String::new(),
+            detected_gradle: None,
+            detected_gradle_for: String::new(),
         }
     }
 
@@ -96,10 +119,19 @@ impl EditorForm {
             .default_port()
             .map(|p| p.to_string())
             .unwrap_or_default();
+        // Switching *to* Spring Boot must re-locate a build file even when `cwd`
+        // is unchanged, so force detection to re-run next frame. Other preset
+        // switches leave the (cwd-keyed) Node cache alone.
+        if preset == Preset::SpringBoot {
+            self.detected_for.clear();
+        }
     }
 
     /// Re-read `package.json` when `cwd` changed since the last check. Cheap to
     /// call every frame: the filesystem is touched only when the path differs.
+    /// For the Spring Boot preset it also auto-locates a Gradle build file under
+    /// the new `cwd` — but only when the field is empty or still holds the last
+    /// auto-located value, so a manual Browse is never silently clobbered.
     fn refresh_detection(&mut self) {
         if self.cwd.trim() == self.detected_for {
             return;
@@ -110,7 +142,47 @@ impl EditorForm {
         } else {
             detect_node_project(Path::new(&cwd))
         };
+        if self.preset == Preset::SpringBoot
+            && (self.gradle_file.trim().is_empty() || self.gradle_file == self.gradle_file_auto)
+        {
+            let located = (!cwd.is_empty())
+                .then(|| gradle::find_build_file(Path::new(&cwd)))
+                .flatten()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            self.gradle_file = located.clone();
+            self.gradle_file_auto = located;
+        }
         self.detected_for = cwd;
+    }
+
+    /// Re-parse the Gradle build file when its path changed. Cheap to call every
+    /// frame: the file is read only when `gradle_file` differs from last time.
+    fn refresh_gradle(&mut self) {
+        let file = self.gradle_file.trim().to_string();
+        if file == self.detected_gradle_for {
+            return;
+        }
+        self.detected_gradle = if file.is_empty() {
+            None
+        } else {
+            gradle::detect_gradle_project(Path::new(&file))
+        };
+        self.detected_gradle_for = file;
+    }
+
+    /// Directory to open the Gradle-file browser in: the current file's folder
+    /// when set, otherwise the working directory.
+    fn gradle_dialog_dir(&self) -> Option<PathBuf> {
+        let file = self.gradle_file.trim();
+        if !file.is_empty()
+            && let Some(parent) = Path::new(file).parent()
+            && !parent.as_os_str().is_empty()
+        {
+            return Some(parent.to_path_buf());
+        }
+        let cwd = self.cwd.trim();
+        (!cwd.is_empty()).then(|| PathBuf::from(cwd))
     }
 
     /// Parse and validate the form into a [`ServerConfig`], or return a
@@ -272,6 +344,87 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
                 form.refresh_detection();
             }
 
+            // Gradle (Spring Boot preset): point at a build file — auto-located
+            // under `cwd`, or Browse to a specific one — then pick a task from the
+            // plugins it applies. Picking fills Command with `./gradlew <task>`.
+            if form.preset == Preset::SpringBoot {
+                ui.label("Gradle file");
+                let gradle_focused = ui
+                    .horizontal(|ui| {
+                        let resp = text_input(ui, &mut form.gradle_file, "build.gradle", 210.0);
+                        if ui.add(text_button("Browse…")).clicked() {
+                            let mut dialog = rfd::FileDialog::new();
+                            if let Some(dir) = form.gradle_dialog_dir() {
+                                dialog = dialog.set_directory(dir);
+                            }
+                            if let Some(path) = dialog.pick_file() {
+                                form.gradle_file = path.to_string_lossy().into_owned();
+                                ui.ctx().request_repaint(); // parse + render Tasks next frame
+                            }
+                        }
+                        resp.has_focus()
+                    })
+                    .inner;
+                ui.end_row();
+
+                // Re-parse only while the path field isn't being typed in, same as
+                // the Node detection above.
+                if !gradle_focused {
+                    form.refresh_gradle();
+                }
+
+                let mut picked: Option<(String, Option<u16>)> = None;
+                if let Some(project) = &form.detected_gradle
+                    && !project.tasks.is_empty()
+                {
+                    ui.label("Tasks");
+                    ui.horizontal(|ui| {
+                        // Exact match highlights the picked task; hand-editing
+                        // Command falls back to the placeholder (as with Scripts).
+                        let current = project
+                            .tasks
+                            .iter()
+                            .find(|t| form.command == gradle::task_command(&t.name))
+                            .map(|t| t.name.clone());
+                        egui::ComboBox::from_id_salt("gradle_tasks")
+                            .selected_text(
+                                current
+                                    .clone()
+                                    .unwrap_or_else(|| "Select a task…".to_string()),
+                            )
+                            .show_ui(ui, |ui| {
+                                for t in &project.tasks {
+                                    let selected = current.as_deref() == Some(t.name.as_str());
+                                    if ui
+                                        .selectable_label(
+                                            selected,
+                                            format!("{}  —  {}", t.name, t.description),
+                                        )
+                                        .clicked()
+                                    {
+                                        picked = Some((
+                                            gradle::task_command(&t.name),
+                                            project.port_hint,
+                                        ));
+                                    }
+                                }
+                            });
+                        if !project.plugins.is_empty() {
+                            ui.weak(format!("plugins: {}", project.plugins.join(", ")));
+                        }
+                    });
+                    ui.end_row();
+                }
+                if let Some((command, port_hint)) = picked {
+                    form.command = command;
+                    if form.port.trim().is_empty()
+                        && let Some(port) = port_hint
+                    {
+                        form.port = port.to_string();
+                    }
+                }
+            }
+
             // Scripts: shown only when `cwd` holds a Node project. Picking one
             // fills Command with `<pm> run <script>` and, when Port is still
             // blank, seeds it from a recognized framework (next/vite).
@@ -425,6 +578,10 @@ mod tests {
             error: None,
             detected: None,
             detected_for: String::new(),
+            gradle_file: String::new(),
+            gradle_file_auto: String::new(),
+            detected_gradle: None,
+            detected_gradle_for: String::new(),
         }
     }
 
@@ -469,5 +626,58 @@ mod tests {
         let preview = f.preview();
         assert!(preview.contains("PORT=3000"), "got: {preview}");
         assert!(preview.contains("npm run dev"), "got: {preview}");
+    }
+
+    /// Two sibling scratch dirs, each with a `build.gradle`, for exercising the
+    /// Spring Boot auto-locate / manual-override state machine.
+    fn gradle_dirs(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        use std::fs;
+        let base =
+            std::env::temp_dir().join(format!("campfire-editor-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let (a, b) = (base.join("a"), base.join("b"));
+        for dir in [&a, &b] {
+            fs::create_dir_all(dir).unwrap();
+            fs::write(dir.join("build.gradle"), "plugins { id 'java' }").unwrap();
+        }
+        (a, b)
+    }
+
+    #[test]
+    fn gradle_file_auto_follows_cwd_when_not_overridden() {
+        let (a, b) = gradle_dirs("follow");
+        let mut f = EditorForm::new_server();
+        f.preset = Preset::SpringBoot;
+
+        f.cwd = a.to_string_lossy().into_owned();
+        f.refresh_detection();
+        assert_eq!(f.gradle_file, a.join("build.gradle").to_string_lossy());
+
+        // Untouched auto value tracks the new working directory.
+        f.cwd = b.to_string_lossy().into_owned();
+        f.refresh_detection();
+        assert_eq!(f.gradle_file, b.join("build.gradle").to_string_lossy());
+
+        let _ = std::fs::remove_dir_all(a.parent().unwrap());
+    }
+
+    #[test]
+    fn gradle_file_manual_override_survives_cwd_change() {
+        let (a, b) = gradle_dirs("override");
+        let mut f = EditorForm::new_server();
+        f.preset = Preset::SpringBoot;
+        f.cwd = a.to_string_lossy().into_owned();
+        f.refresh_detection();
+
+        // User Browses to a specific module's build file.
+        let manual = a.join("app/build.gradle").to_string_lossy().into_owned();
+        f.gradle_file = manual.clone();
+
+        // An incidental cwd edit must not clobber the manual override.
+        f.cwd = b.to_string_lossy().into_owned();
+        f.refresh_detection();
+        assert_eq!(f.gradle_file, manual);
+
+        let _ = std::fs::remove_dir_all(a.parent().unwrap());
     }
 }
