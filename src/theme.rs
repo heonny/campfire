@@ -15,11 +15,10 @@ pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFB, 0xE3, 0xCC);
 pub const DANGER: Color32 = Color32::from_rgb(0xC0, 0x39, 0x2B);
 
 /// Card surface palette, tuned to the Claude Code app: a muted grey card on a
-/// near-white background, delineated by a hairline border, with a slightly
-/// deeper grey on hover. `INSET_FILL` is the recessed surface for code blocks.
+/// near-white background, delineated by a hairline border. `INSET_FILL` is the
+/// recessed surface for code blocks.
 pub const CARD_FILL: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF2);
 pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE3, 0xE3, 0xE2);
-pub const CARD_HOVER_FILL: Color32 = Color32::from_rgb(0xEB, 0xEB, 0xEA);
 pub const INSET_FILL: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xE8);
 
 /// The soft grey a chromeless icon button fills with on hover. Reused as the

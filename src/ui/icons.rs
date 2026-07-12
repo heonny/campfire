@@ -73,3 +73,8 @@ pub fn chevron_down() -> egui::Image<'static> {
 pub fn help() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/info.svg"))
 }
+
+/// Toggle the sidebar (project list) collapsed/expanded.
+pub fn sidebar() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/panel-left.svg"))
+}

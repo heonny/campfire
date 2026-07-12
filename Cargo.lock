@@ -580,6 +580,7 @@ dependencies = [
  "dotenvy",
  "eframe",
  "egui",
+ "egui_dnd",
  "egui_extras",
  "libc",
  "regex-lite",
@@ -672,6 +673,16 @@ checksum = "a68fa787550392a9d58f44c21a3022cfb3ea3e2458b7f85d3b399d0ceeccf409"
 dependencies = [
  "nix 0.27.1",
  "winapi",
+]
+
+[[package]]
+name = "concat-idents"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f76990911f2267d837d9d0ad060aa63aaad170af40904b29461734c339030d4d"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -968,6 +979,29 @@ dependencies = [
  "web-time",
  "webbrowser",
  "winit",
+]
+
+[[package]]
+name = "egui_animation"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4434e99040717912350c108ffe543ef68d34147691523fb726ae99adf0935b4"
+dependencies = [
+ "egui",
+ "hello_egui_utils",
+ "simple-easing",
+]
+
+[[package]]
+name = "egui_dnd"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1e40c74727cb2a7db02712604dbd293bb2a1dc8fa461e901612d280678fe56c"
+dependencies = [
+ "egui",
+ "egui_animation",
+ "simple-easing",
+ "web-time",
 ]
 
 [[package]]
@@ -1550,6 +1584,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "foldhash 0.2.0",
+]
+
+[[package]]
+name = "hello_egui_utils"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e31f814d47d37c03981b24094192586560fbe490c0b4ae94e808bdf076610b6"
+dependencies = [
+ "concat-idents",
+ "egui",
 ]
 
 [[package]]
@@ -3182,6 +3226,12 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "simple-easing"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c82d449ab1bccfeec125893c6875008206f038d4eb8a09e1e10caf86f44d574e"
 
 [[package]]
 name = "simplecss"

@@ -68,6 +68,20 @@ fn main() -> eframe::Result<()> {
 /// `Drop`, and pressing Stop again during the wait escalates immediately.
 const STOP_GRACE: Duration = Duration::from_secs(10);
 
+/// Sidebar layout: `egui::Panel::show_switched` cross-fades between the full
+/// card list (`SIDEBAR_DEFAULT_WIDTH`, resizable down to `SIDEBAR_MIN_WIDTH`) and
+/// a `SIDEBAR_RAIL_WIDTH` rail of per-server status dots. Dragging the resize bar
+/// in past the rail's width collapses it; pulling the rail's edge back out
+/// expands it. egui shares one resize handle across both, so a single drag can
+/// do either, and it drives the `is_expanded` flag for us.
+const SIDEBAR_DEFAULT_WIDTH: f32 = 240.0;
+const SIDEBAR_MIN_WIDTH: f32 = 150.0;
+const SIDEBAR_RAIL_WIDTH: f32 = 44.0;
+/// How long the sidebar collapse/expand slide takes. Longer than egui's 0.2 s
+/// default so this wide panel eases smoothly instead of snapping; scoped to the
+/// panel so hover and other feedback keep the snappy default.
+const SIDEBAR_SLIDE_TIME: f32 = 0.35;
+
 /// Root application state.
 struct CampfireApp {
     servers: Vec<ServerConfig>,
@@ -98,6 +112,9 @@ struct CampfireApp {
     runtime: HashMap<String, RuntimeEntry>,
     /// Cached path of the runtime-state file (`running.json`), if resolvable.
     runtime_path: Option<PathBuf>,
+    /// Whether the sidebar (project list) is collapsed to give the log area the
+    /// full width. Session-only; not persisted.
+    sidebar_collapsed: bool,
 }
 
 impl CampfireApp {
@@ -158,6 +175,7 @@ impl CampfireApp {
             logo: None,
             runtime,
             runtime_path,
+            sidebar_collapsed: false,
         }
     }
 
@@ -230,6 +248,7 @@ impl CampfireApp {
                 }
             }
             Action::OpenHelp => self.show_help = true,
+            Action::ToggleSidebar => self.sidebar_collapsed = !self.sidebar_collapsed,
         }
     }
 
@@ -528,20 +547,51 @@ impl eframe::App for CampfireApp {
             selected: self.selected.as_deref(),
             metrics: &self.metrics,
         };
+        // Sidebar: `show_switched` cross-fades between the full card list and a
+        // slim rail of per-server status dots, and drives both directions by
+        // dragging the shared resize bar — squeeze it past the rail's width to
+        // collapse, pull the rail's edge back out to expand. The rail's reopen
+        // button is an additional way in, via `Action::ToggleSidebar`.
+        let was_collapsed = self.sidebar_collapsed;
+        let mut expanded = !was_collapsed;
+        let margin = egui::Margin {
+            left: 12,
+            right: 4,
+            top: 4,
+            bottom: 12,
+        };
+        let collapsed_panel = egui::Panel::left("sidebar_rail")
+            .resizable(true)
+            .exact_size(SIDEBAR_RAIL_WIDTH)
+            .frame(theme::canvas_frame(margin))
+            .show_separator_line(false);
+        let expanded_panel = egui::Panel::left("server_list")
+            .resizable(true)
+            .default_size(SIDEBAR_DEFAULT_WIDTH)
+            .size_range(SIDEBAR_MIN_WIDTH..=420.0)
+            .frame(theme::canvas_frame(margin))
+            .show_separator_line(false);
         theme::with_accent_resize_indicator(ui, |ui| {
-            egui::Panel::left("server_list")
-                .default_size(240.0)
-                // Keep the sidebar between "cards stay readable" and "the
-                // detail pane keeps room" (the egui default allows 96px).
-                .size_range(180.0..=420.0)
-                .frame(theme::canvas_frame(egui::Margin {
-                    left: 12,
-                    right: 4,
-                    top: 4,
-                    bottom: 12,
-                }))
-                .show_separator_line(false)
-                .show(ui, |ui| ui::server_list::show(ui, &view, &mut action));
+            // `show_switched` slides via the global `animation_time`; bump it just
+            // for this call (restored right after) so the collapse/expand eases
+            // smoothly, while hover and other feedback keep the snappy default.
+            let ctx = ui.ctx().clone();
+            let saved_anim = ctx.global_style().animation_time;
+            ctx.all_styles_mut(|s| s.animation_time = SIDEBAR_SLIDE_TIME);
+            egui::Panel::show_switched(
+                ui,
+                &mut expanded,
+                collapsed_panel,
+                expanded_panel,
+                |ui, is_expanded| {
+                    if is_expanded {
+                        ui::server_list::show(ui, &view, &mut action);
+                    } else {
+                        ui::server_list::rail(ui, &view, &mut action);
+                    }
+                },
+            );
+            ctx.all_styles_mut(|s| s.animation_time = saved_anim);
         });
         egui::CentralPanel::default()
             .frame(theme::canvas_frame(egui::Margin {
@@ -556,6 +606,13 @@ impl eframe::App for CampfireApp {
 
         if let Some(action) = action {
             self.apply_action(action, ui.ctx().clone());
+        }
+        // A resize-bar drag flips `expanded` directly; honor that over the
+        // pre-frame state. A flip means `expanded` now equals the old collapsed
+        // flag. The rail's reopen button instead flips state through
+        // `Action::ToggleSidebar` above, and reaches here as a no-op (no flip).
+        if expanded == was_collapsed {
+            self.sidebar_collapsed = !expanded;
         }
 
         if self.editor.is_some() {

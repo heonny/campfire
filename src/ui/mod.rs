@@ -35,6 +35,8 @@ pub enum Action {
     OpenNew,
     OpenEdit(String),
     OpenHelp,
+    /// Collapse or expand the sidebar (project list).
+    ToggleSidebar,
 }
 
 /// Read-only view of the app state that the panels render from.
@@ -65,7 +67,7 @@ pub fn status_color(status: &Status) -> egui::Color32 {
 /// (both lighter than the stopped grey, so red-green color-blind users get a
 /// brightness cue) make a live or crashed server unmistakable next to a stopped
 /// one; Starting and Stopped reuse `status_color`.
-fn status_dot_fill(status: &Status) -> egui::Color32 {
+pub(crate) fn status_dot_fill(status: &Status) -> egui::Color32 {
     match status {
         Status::Running => egui::Color32::from_rgb(0x22, 0xC5, 0x5E),
         Status::Crashed { .. } => egui::Color32::from_rgb(0xEF, 0x44, 0x44),
