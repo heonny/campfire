@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use ui::Action;
 use ui::editor::{EditorForm, EditorOutcome};
-use ui::log_view::LogView;
+use ui::workspaces::Workspaces;
 
 fn main() -> eframe::Result<()> {
     // Relay signal-based termination (SIGTERM/SIGINT/…) to our server groups,
@@ -85,14 +85,13 @@ const SIDEBAR_SLIDE_TIME: f32 = 0.35;
 /// Root application state.
 struct CampfireApp {
     servers: Vec<ServerConfig>,
-    /// Id of the selected server (stable across list edits), if any.
-    selected: Option<String>,
     /// Live processes, keyed by `ServerConfig::id`.
     running: HashMap<String, RunningProcess>,
     /// Open add/edit form, if any.
     editor: Option<EditorForm>,
-    /// Log pane state (search text, follow toggle).
-    log_view: LogView,
+    /// The workspace tabs and their log-pane splits (mutable UI state; process
+    /// data stays in `running`).
+    workspaces: Workspaces,
     /// Transient one-line notice (e.g. a port conflict that blocked a start).
     notice: Option<String>,
     /// Servers awaiting a restart once their current process has terminated.
@@ -163,11 +162,10 @@ impl CampfireApp {
 
         Self {
             servers,
-            selected: None,
             running,
             editor: None,
             pending_delete: None,
-            log_view: LogView::new(),
+            workspaces: Workspaces::new(),
             notice,
             restart_pending: HashSet::new(),
             metrics: metrics::Metrics::new(),
@@ -239,7 +237,12 @@ impl CampfireApp {
                     proc.clear_logs();
                 }
             }
-            Action::Select(id) => self.selected = Some(id),
+            Action::OpenLog(id) => {
+                if let Some(notice) = self.workspaces.active_mut().open_auto(&id) {
+                    self.notice = Some(notice.to_owned());
+                }
+            }
+            Action::FocusLog(id) => self.workspaces.active_mut().focus(&id),
             Action::Reorder { from, to } => self.reorder_servers(from, to),
             Action::OpenNew => self.editor = Some(EditorForm::new_server()),
             Action::OpenEdit(id) => {
@@ -281,9 +284,7 @@ impl CampfireApp {
         self.running.remove(id); // dropped -> Drop force-kills the group
         self.untrack_running(id); // clear runtime + signal registry now
         self.servers.retain(|s| s.id != id);
-        if self.selected.as_deref() == Some(id) {
-            self.selected = None;
-        }
+        self.workspaces.close_server_everywhere(id); // drop its panes everywhere
         self.persist();
     }
 
@@ -540,11 +541,17 @@ impl eframe::App for CampfireApp {
                     });
             });
 
+        // Snapshot the active workspace's focus/open set into locals, so `View`
+        // doesn't borrow `workspaces` — it must stay free for the dock's
+        // mutable render below.
+        let focused = self.workspaces.active().focused().map(str::to_owned);
+        let open_logs = self.workspaces.active().open_ids();
         let view = ui::View {
             servers: &self.servers,
             running: &self.running,
             dup_ports: &dup_ports,
-            selected: self.selected.as_deref(),
+            focused: focused.as_deref(),
+            open_logs: &open_logs,
             metrics: &self.metrics,
         };
         // Sidebar: `show_switched` cross-fades between the full card list and a
@@ -600,9 +607,7 @@ impl eframe::App for CampfireApp {
                 top: 4,
                 bottom: 12,
             }))
-            .show(ui, |ui| {
-                ui::detail::show(ui, &view, &mut self.log_view, &mut action)
-            });
+            .show(ui, |ui| self.workspaces.show(ui, &view, &mut action));
 
         if let Some(action) = action {
             self.apply_action(action, ui.ctx().clone());

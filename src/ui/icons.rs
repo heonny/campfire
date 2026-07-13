@@ -25,10 +25,6 @@ pub fn restart() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/rotate-cw.svg"))
 }
 
-pub fn edit() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/pencil.svg"))
-}
-
 /// Leading affordance for the find field.
 pub fn search() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/search.svg"))
@@ -77,4 +73,9 @@ pub fn help() -> egui::Image<'static> {
 /// Toggle the sidebar (project list) collapsed/expanded.
 pub fn sidebar() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/panel-left.svg"))
+}
+
+/// Close a log pane or a workspace tab.
+pub fn close() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/x.svg"))
 }

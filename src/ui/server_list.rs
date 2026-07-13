@@ -88,14 +88,18 @@ fn render_card(
         None
     };
     let dup = server.port.is_some_and(|p| view.dup_ports.contains(&p));
-    let selected = view.selected == Some(server.id.as_str());
+    let focused = view.focused == Some(server.id.as_str());
+    let open = view.open_logs.iter().any(|s| s == &server.id);
 
-    // Only the selected card takes the accent tint. The dragged card is
-    // deliberately NOT tinted: egui_dnd already lifts it to follow the cursor, so
-    // an extra accent fill+border on top read as a "red box" flickering over the
-    // drop target.
-    let (fill, border) = if selected {
+    // The focused pane's card takes the accent tint; a merely-open (unfocused)
+    // pane keeps the grey fill but an accent border, so which logs are up in the
+    // active workspace is visible at a glance. The dragged card is deliberately
+    // NOT tinted: egui_dnd already lifts it to follow the cursor, and an extra
+    // accent fill on top read as a "red box" flickering over the drop target.
+    let (fill, border) = if focused {
         (theme::ACCENT_WEAK, theme::ACCENT)
+    } else if open {
+        (theme::CARD_FILL, theme::ACCENT)
     } else {
         (theme::CARD_FILL, theme::CARD_BORDER)
     };
@@ -130,9 +134,10 @@ fn render_card(
 
     card_context_menu(&response, server, active, action);
     // A drag ends as a release, not a click, so this fires only on a genuine
-    // short click — a reorder never also selects.
+    // short click. Clicking focuses the server's pane if it is open in the
+    // active workspace; opening is the drag gesture (or the context menu).
     if response.clicked() {
-        *action = Some(Action::Select(server.id.clone()));
+        *action = Some(Action::FocusLog(server.id.clone()));
     }
     ui.add_space(6.0);
 }
@@ -172,6 +177,11 @@ fn card_context_menu(
             ui.close();
         }
         ui.add_space(4.0);
+        // The non-drag way to open a log pane (auto-placed) in the workspace.
+        if ui.button("Open log").clicked() {
+            *action = Some(Action::OpenLog(id.clone()));
+            ui.close();
+        }
         if ui.button("Duplicate").clicked() {
             *action = Some(Action::Duplicate(id.clone()));
             ui.close();
@@ -209,12 +219,12 @@ pub fn rail(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
                 .get(&server.id)
                 .map(|p| p.status().clone())
                 .unwrap_or(Status::Stopped);
-            let selected = view.selected == Some(server.id.as_str());
-            if rail_dot(ui, &status, selected)
+            let focused = view.focused == Some(server.id.as_str());
+            if rail_dot(ui, &status, focused)
                 .on_hover_text(&server.name)
                 .clicked()
             {
-                *action = Some(Action::Select(server.id.clone()));
+                *action = Some(Action::FocusLog(server.id.clone()));
             }
             ui.add_space(8.0);
         }

@@ -81,12 +81,6 @@ impl Default for LogView {
     }
 }
 
-impl LogView {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 /// A find match: the display row it sits on and its byte range in that line's
 /// ANSI-stripped text.
 struct FindMatch {

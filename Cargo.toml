@@ -17,6 +17,7 @@ eframe = "0.35.0"
 egui = "0.35.0"
 egui_dnd = "0.16.0"
 egui_extras = { version = "0.35.0", features = ["svg"] }
+egui_tiles = "0.16.0"
 # Log find/grep matching (case / whole-word / regex). regex-lite over regex:
 # no aho-corasick/SIMD deps, so it keeps the binary small — plenty fast for
 # matching short log lines.

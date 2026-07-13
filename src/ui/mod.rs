@@ -9,12 +9,12 @@ use eframe::egui;
 use std::collections::{BTreeSet, HashMap};
 
 pub mod confirm;
-pub mod detail;
 pub mod editor;
 pub mod help;
 pub mod icons;
 pub mod log_view;
 pub mod server_list;
+pub mod workspaces;
 
 /// A user action captured during rendering, applied after the panels close so
 /// the render code never needs a mutable borrow of the app state.
@@ -25,7 +25,11 @@ pub enum Action {
     Duplicate(String),
     Delete(String),
     ClearLogs(String),
-    Select(String),
+    /// Open this server's log in the active workspace at an automatic position
+    /// (the accessible non-drag path: the card context menu).
+    OpenLog(String),
+    /// Focus this server's pane in the active workspace, if it is open there.
+    FocusLog(String),
     /// Move the server at index `from` to index `to` in the list (drag reorder).
     /// Indices are into the same rendered `View::servers`, resolved this frame.
     Reorder {
@@ -44,7 +48,10 @@ pub struct View<'a> {
     pub servers: &'a [ServerConfig],
     pub running: &'a HashMap<String, RunningProcess>,
     pub dup_ports: &'a BTreeSet<u16>,
-    pub selected: Option<&'a str>,
+    /// The ACTIVE workspace's focused pane, for the sidebar highlight.
+    pub focused: Option<&'a str>,
+    /// Server ids open in the ACTIVE workspace, for the sidebar's open marker.
+    pub open_logs: &'a [String],
     pub metrics: &'a Metrics,
 }
 
