@@ -164,12 +164,17 @@ impl CampfireApp {
             notice = reconcile_notice(running.len(), stopped);
         }
 
+        // Restore the saved workspace layout, minus any servers deleted while
+        // the app was closed.
+        let known_ids: Vec<String> = servers.iter().map(|s| s.id.clone()).collect();
+        let workspaces = Workspaces::load(&known_ids);
+
         Self {
             servers,
             running,
             editor: None,
             pending_delete: None,
-            workspaces: Workspaces::new(),
+            workspaces,
             notice,
             restart_pending: HashSet::new(),
             metrics: metrics::Metrics::new(),
@@ -444,6 +449,12 @@ impl eframe::App for CampfireApp {
         theme::CANVAS_FILL.to_normalized_gamma_f32()
     }
 
+    // Final layout save on a clean close; per-change saves during the session
+    // already cover the common case (this catches an edit-then-quit race).
+    fn on_exit(&mut self) {
+        self.workspaces.save();
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if self.logo.is_none()
             && let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!(
@@ -630,6 +641,12 @@ impl eframe::App for CampfireApp {
         // `Action::ToggleSidebar` above, and reaches here as a no-op (no flip).
         if expanded == was_collapsed {
             self.sidebar_collapsed = !expanded;
+        }
+
+        // Persist the workspace layout when something save-worthy changed this
+        // frame (tab ops, opens/closes, pane drags, split resizes).
+        if self.workspaces.take_dirty() {
+            self.workspaces.save();
         }
 
         if self.editor.is_some() {

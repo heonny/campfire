@@ -12,6 +12,7 @@
 
 mod dock;
 mod drop;
+mod persist;
 mod tabs;
 
 use drop::Zone;
@@ -207,6 +208,13 @@ pub struct Workspaces {
     next_id: u64,
     /// In-progress tab rename: (workspace index, edit buffer).
     renaming: Option<(usize, String)>,
+    /// Something persistence-worthy changed (tabs, layout); consumed by
+    /// [`Workspaces::take_dirty`] to trigger a best-effort save.
+    dirty: bool,
+    /// Last seen `(workspace id, tree)` of the active workspace, to detect the
+    /// tree mutations egui_tiles applies during rendering (pane drags, resizes)
+    /// that no explicit operation of ours sees.
+    tree_snapshot: Option<(u64, Tree<String>)>,
 }
 
 impl Workspaces {
@@ -216,6 +224,8 @@ impl Workspaces {
             active: 0,
             next_id: 2,
             renaming: None,
+            dirty: false,
+            tree_snapshot: None,
         }
     }
 
@@ -236,6 +246,7 @@ impl Workspaces {
         self.next_id += 1;
         self.list.push(Workspace::new(id, format!("Workspace {id}")));
         self.active = self.list.len() - 1;
+        self.dirty = true;
     }
 
     /// Close the workspace at `index`. The last one is replaced by a fresh
@@ -245,6 +256,7 @@ impl Workspaces {
             return;
         }
         self.list.remove(index);
+        self.dirty = true;
         if self.list.is_empty() {
             let id = self.next_id;
             self.next_id += 1;
@@ -258,11 +270,42 @@ impl Workspaces {
         self.active = self.active.min(self.list.len() - 1);
     }
 
-    /// Drop `server_id`'s panes from every workspace (server deleted).
+    /// Drop `server_id`'s panes from every workspace (server deleted). Marks
+    /// dirty directly: the tree snapshot only watches the active workspace.
     pub fn close_server_everywhere(&mut self, server_id: &str) {
         for ws in &mut self.list {
             ws.close_server(server_id);
         }
+        self.dirty = true;
+    }
+
+    /// Whether a save-worthy change happened since the last call (consumes the
+    /// flag). The caller persists on `true`.
+    pub fn take_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.dirty)
+    }
+
+    /// Detect tree mutations made during rendering (egui_tiles applies pane
+    /// drags and split resizes inside `Tree::ui`) by comparing the active tree
+    /// against last frame's snapshot. A snapshot for a DIFFERENT workspace does
+    /// not mark dirty — switching tabs is flagged where it happens.
+    fn sync_tree_snapshot(&mut self) {
+        let ws = &self.list[self.active];
+        let unchanged = self
+            .tree_snapshot
+            .as_ref()
+            .is_some_and(|(id, tree)| *id == ws.id && *tree == ws.tree);
+        if unchanged {
+            return;
+        }
+        if self
+            .tree_snapshot
+            .as_ref()
+            .is_some_and(|(id, _)| *id == ws.id)
+        {
+            self.dirty = true;
+        }
+        self.tree_snapshot = Some((ws.id, ws.tree.clone()));
     }
 
     /// Render the tab strip and the active workspace's dock, then the card-drop
@@ -283,6 +326,7 @@ impl Workspaces {
         // After the tree rendered, its pane rects are laid out for this frame —
         // exactly what the drop preview needs.
         let notice = drop::handle_card_drag(ui, self.active_mut(), drag, dock_rect);
+        self.sync_tree_snapshot();
         (dock_rect, notice)
     }
 }
