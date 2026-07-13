@@ -174,7 +174,7 @@ fn log_body(
 
     let empty = LogBuffer::default();
     let logs = proc.map(|p| p.logs()).unwrap_or(&empty);
-    if log_view::show(ui, log_view_state, logs) {
+    if log_view::show(ui, egui::Id::new("detail_log"), log_view_state, logs) {
         *action = Some(Action::ClearLogs(server.id.clone()));
     }
 }

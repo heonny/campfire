@@ -16,8 +16,12 @@ use std::ops::Range;
 /// The trade-off: every displayed line is built each frame (egui caches the
 /// galleys, so a steady tail stays cheap). If a very large scrollback ever makes
 /// this heavy, swap in a variable-height virtual list.
+// Straight-line render pipeline inputs; bundling them into a struct would just
+// move the same fields behind an extra name.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn render_body(
     ui: &mut egui::Ui,
+    salt: egui::Id,
     logs: &LogBuffer,
     displayed: &Displayed<'_>,
     find: Option<&Matcher>,
@@ -47,7 +51,9 @@ pub(super) fn render_body(
         Some(ScrollTo::Match(row)) => (None, false, Some(row)),
         None => (None, follow, None),
     };
-    let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+    let mut area = egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .id_salt(salt);
     area = match offset {
         Some(y) => area.vertical_scroll_offset(y),
         None => area.stick_to_bottom(stick),

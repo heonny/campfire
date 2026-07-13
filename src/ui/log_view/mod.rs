@@ -138,7 +138,11 @@ struct SearchInfo<'a> {
 
 /// Render the (optional) find/grep box, the virtualized log lines, and the
 /// bottom control bar. Returns `true` if the user clicked "clear".
-pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
+///
+/// `salt` uniquely identifies this log pane, so its internal widget ids (the
+/// bottom control panel, the scroll area) don't clash when several log views
+/// are on screen at once (egui flags duplicate ids with red warnings).
+pub fn show(ui: &mut egui::Ui, salt: egui::Id, state: &mut LogView, logs: &LogBuffer) -> bool {
     // Cmd/Ctrl+F toggles the find/grep box (focusing it on open); Escape closes it.
     let open_key = ui.input_mut(|i| {
         i.consume_shortcut(&egui::KeyboardShortcut::new(
@@ -171,7 +175,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
     // Viewport controls (follow / clear / scroll) live in a bar pinned to the
     // bottom edge, shown whether or not the search box is open. Rendered first so
     // it reserves its space; the body then fills whatever remains above it.
-    egui::Panel::bottom(egui::Id::new("log_controls"))
+    egui::Panel::bottom(salt.with("log_controls"))
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::new().inner_margin(egui::Margin {
@@ -220,7 +224,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut LogView, logs: &LogBuffer) -> bool {
     } else {
         (Displayed::All(logs.len()), None, None)
     };
-    render_body(ui, logs, &displayed, find, active, follow, scroll_to);
+    render_body(ui, salt, logs, &displayed, find, active, follow, scroll_to);
     events.clear
 }
 
