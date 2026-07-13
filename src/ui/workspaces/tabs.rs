@@ -21,6 +21,10 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
+                // Match the inactive-tab buttons' vertical padding to the
+                // active chip's frame margin, so the strip keeps one height
+                // regardless of how many workspaces exist.
+                ui.spacing_mut().button_padding = egui::vec2(10.0, 4.0);
                 for index in 0..wss.list.len() {
                     match &mut wss.renaming {
                         Some((i, buffer)) if *i == index => {
@@ -70,15 +74,8 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
     if let Some(index) = start_rename {
         wss.renaming = Some((index, wss.list[index].name.clone()));
     }
-    if let Some(index) = select
-        && index != wss.active
-    {
-        wss.active = index;
-        // Loaded (non-active) workspaces start with no focus; give the newly
-        // active one a sensible focused pane so click-to-swap and the log
-        // search shortcut have a target.
-        wss.list[index].fix_focus_and_reset();
-        wss.dirty = true;
+    if let Some(index) = select {
+        wss.switch_to(index);
     }
     if let Some(index) = close {
         wss.renaming = None; // indices shift; drop any in-progress rename
@@ -89,7 +86,8 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
 /// One workspace chip, quiet like a modern tab strip. The active tab is a
 /// white card with the usual hairline and its × close; inactive tabs are
 /// chromeless buttons (weak text, the standard hover fill) that switch on
-/// click. Double-click renames either.
+/// click. Double-click renames, middle-click closes — closing the last
+/// workspace just leaves a fresh empty one.
 fn chip(
     ui: &mut egui::Ui,
     index: usize,
@@ -103,7 +101,9 @@ fn chip(
         let button = egui::Button::new(egui::RichText::new(&ws.name).weak())
             .frame_when_inactive(false);
         let response = ui.add(button);
-        if response.double_clicked() {
+        if response.middle_clicked() {
+            *close = Some(index);
+        } else if response.double_clicked() {
             *start_rename = Some(index);
         } else if response.clicked() {
             *select = Some(index);
@@ -122,14 +122,15 @@ fn chip(
                     .selectable(false)
                     .sense(egui::Sense::click()),
             );
-            if label.double_clicked() {
+            if label.middle_clicked() {
+                *close = Some(index);
+            } else if label.double_clicked() {
                 *start_rename = Some(index);
             }
-            if wss.list.len() > 1
-                && ui
-                    .add(icon_button(icons::close()))
-                    .on_hover_text("Close workspace")
-                    .clicked()
+            if ui
+                .add(icon_button(icons::close()))
+                .on_hover_text("Close workspace")
+                .clicked()
             {
                 *close = Some(index);
             }

@@ -49,9 +49,11 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                  highlighted half shows where it will split (up to 4 logs side \
                  by side). Drag a pane's title to rearrange, drag the gaps to \
                  resize, and × closes a pane. Tabs above bundle layouts into \
-                 workspaces: + adds one, double-click renames, and the layout is \
-                 remembered across launches. Clicking a card focuses its pane; \
-                 right-click → Open log opens without dragging.",
+                 workspaces: + adds one, double-click renames, middle-click (or \
+                 ×, or Cmd/Ctrl+W) closes, Cmd/Ctrl+1–9 and 0 switch tabs, and \
+                 the layout is remembered across launches. Clicking a card shows \
+                 that log in the focused pane; right-click → Open log opens \
+                 without dragging.",
             );
             section(
                 ui,

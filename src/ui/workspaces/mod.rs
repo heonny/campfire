@@ -287,6 +287,59 @@ impl Workspaces {
         self.dirty = true;
     }
 
+    /// Switch the active workspace (tab click / Cmd+number), giving the
+    /// incoming one a sensible focused pane.
+    fn switch_to(&mut self, index: usize) {
+        if index >= self.list.len() || index == self.active {
+            return;
+        }
+        self.active = index;
+        self.list[index].fix_focus_and_reset();
+        self.dirty = true;
+    }
+
+    /// Workspace keyboard shortcuts: Cmd/Ctrl+1–9 jump to that tab, Cmd/Ctrl+0
+    /// to the tenth, Cmd/Ctrl+W closes the active one (the last workspace is
+    /// replaced by a fresh empty one).
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        const KEYS: [egui::Key; 10] = [
+            egui::Key::Num1,
+            egui::Key::Num2,
+            egui::Key::Num3,
+            egui::Key::Num4,
+            egui::Key::Num5,
+            egui::Key::Num6,
+            egui::Key::Num7,
+            egui::Key::Num8,
+            egui::Key::Num9,
+            egui::Key::Num0,
+        ];
+        let mut switch = None;
+        let mut close_active = false;
+        ctx.input_mut(|input| {
+            for (index, key) in KEYS.iter().enumerate() {
+                if input.consume_shortcut(&egui::KeyboardShortcut::new(
+                    egui::Modifiers::COMMAND,
+                    *key,
+                )) {
+                    switch = Some(index);
+                }
+            }
+            if input.consume_shortcut(&egui::KeyboardShortcut::new(
+                egui::Modifiers::COMMAND,
+                egui::Key::W,
+            )) {
+                close_active = true;
+            }
+        });
+        if let Some(index) = switch {
+            self.switch_to(index);
+        }
+        if close_active {
+            self.close(self.active);
+        }
+    }
+
     /// Close the workspace at `index`. The last one is replaced by a fresh
     /// empty workspace, so there is always at least one.
     fn close(&mut self, index: usize) {
@@ -357,6 +410,7 @@ impl Workspaces {
         action: &mut Option<Action>,
         drag: &crate::ui::SidebarDrag,
     ) -> (egui::Rect, Option<&'static str>) {
+        self.handle_shortcuts(ui.ctx());
         tabs::strip(ui, self);
         ui.add_space(8.0);
         let dock_rect = ui.available_rect_before_wrap();
@@ -494,6 +548,29 @@ mod tests {
             wss.add();
         }
         assert_eq!(wss.list.len(), MAX_WORKSPACES);
+    }
+
+    #[test]
+    fn switch_to_changes_active_and_ignores_out_of_range() {
+        let mut wss = Workspaces::new();
+        wss.add();
+        wss.take_dirty();
+        wss.switch_to(0);
+        assert_eq!(wss.active, 0);
+        assert!(wss.take_dirty(), "switching marks the layout dirty");
+        wss.switch_to(0); // same index: no-op
+        assert!(!wss.take_dirty());
+        wss.switch_to(99); // out of range: no-op
+        assert_eq!(wss.active, 0);
+    }
+
+    #[test]
+    fn closing_the_single_workspace_leaves_a_fresh_one() {
+        let mut wss = Workspaces::new();
+        wss.active_mut().open_auto("a");
+        wss.close(0);
+        assert_eq!(wss.list.len(), 1);
+        assert!(wss.active().open_ids().is_empty(), "fresh empty workspace");
     }
 
     #[test]
