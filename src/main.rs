@@ -252,7 +252,7 @@ impl CampfireApp {
                     self.notice = Some(notice.to_owned());
                 }
             }
-            Action::FocusLog(id) => self.workspaces.active_mut().focus(&id),
+            Action::ShowLog(id) => self.workspaces.active_mut().show_log(&id),
             Action::Reorder { from, to } => self.reorder_servers(from, to),
             Action::OpenNew => self.editor = Some(EditorForm::new_server()),
             Action::OpenEdit(id) => {

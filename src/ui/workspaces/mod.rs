@@ -21,7 +21,7 @@ use crate::ui::log_view::LogView;
 use crate::ui::{Action, View};
 use eframe::egui;
 use egui_tiles::{Tile, TileId, Tree};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A workspace shows at most this many log panes at once.
 pub const MAX_PANES: usize = 4;
@@ -71,7 +71,7 @@ impl Workspace {
     fn pane_tiles(&self) -> Vec<(TileId, String)> {
         let mut out = Vec::new();
         if let Some(root) = self.tree.root {
-            collect_panes(&self.tree, root, &mut out);
+            collect_panes(&self.tree, root, &mut out, &mut HashSet::new());
         }
         out
     }
@@ -88,6 +88,35 @@ impl Workspace {
     pub fn focus(&mut self, server_id: &str) {
         if self.is_open(server_id) {
             self.focused = Some(server_id.to_owned());
+        }
+    }
+
+    /// Card click: show `server_id`'s log **without changing the layout** —
+    /// focus its pane if open, otherwise swap it into the focused pane (falling
+    /// back to the first pane), or open it as the first pane of an empty
+    /// workspace. Splitting stays a drag (or context-menu) gesture.
+    pub fn show_log(&mut self, server_id: &str) {
+        if self.is_open(server_id) {
+            self.focused = Some(server_id.to_owned());
+            return;
+        }
+        let target = self
+            .focused
+            .as_deref()
+            .and_then(|focused| self.find_pane(focused))
+            .or_else(|| self.pane_tiles().first().map(|(tile, _)| *tile));
+        match target {
+            Some(tile) => {
+                if let Some(Tile::Pane(server)) = self.tree.tiles.get_mut(tile) {
+                    let old = std::mem::replace(server, server_id.to_owned());
+                    self.views.remove(&old); // the old content's view state goes with it
+                    self.focused = Some(server_id.to_owned());
+                }
+            }
+            // Workspace is empty: the click just opens it (cannot be full).
+            None => {
+                let _ = self.open_at(None, server_id);
+            }
         }
     }
 
@@ -156,16 +185,9 @@ impl Workspace {
 
     /// The tile currently showing `server_id`, reachable from the root.
     fn find_pane(&self, server_id: &str) -> Option<TileId> {
-        fn walk(tree: &Tree<String>, tile: TileId, server_id: &str) -> Option<TileId> {
-            match tree.tiles.get(tile)? {
-                Tile::Pane(s) => (s == server_id).then_some(tile),
-                Tile::Container(c) => c
-                    .children_vec()
-                    .into_iter()
-                    .find_map(|child| walk(tree, child, server_id)),
-            }
-        }
-        walk(&self.tree, self.tree.root?, server_id)
+        self.pane_tiles()
+            .into_iter()
+            .find_map(|(tile, id)| (id == server_id).then_some(tile))
     }
 
     /// Re-point the focus at an open pane (or none), and swap a paneless tree
@@ -188,12 +210,24 @@ impl Workspace {
     }
 }
 
-fn collect_panes(tree: &Tree<String>, tile: TileId, out: &mut Vec<(TileId, String)>) {
+/// Depth-first pane walk. `visited` guards against cycles: `workspaces.json`
+/// is plain JSON with u64 tile ids, so a corrupted/hand-edited file can make a
+/// container its own (grand)child — egui_tiles only breaks such cycles during
+/// `Tree::ui`, but this walk runs at load time, before any frame.
+fn collect_panes(
+    tree: &Tree<String>,
+    tile: TileId,
+    out: &mut Vec<(TileId, String)>,
+    visited: &mut HashSet<TileId>,
+) {
+    if !visited.insert(tile) {
+        return;
+    }
     match tree.tiles.get(tile) {
         Some(Tile::Pane(server)) => out.push((tile, server.clone())),
         Some(Tile::Container(container)) => {
             for child in container.children_vec() {
-                collect_panes(tree, child, out);
+                collect_panes(tree, child, out, visited);
             }
         }
         None => {}
@@ -229,12 +263,16 @@ impl Workspaces {
         }
     }
 
+    // `active < list.len()` is maintained by every mutator (add/close/from_doc)
+    // and `list` is never empty; the clamp makes that invariant enforced at one
+    // chokepoint instead of a panic at whichever call site regresses first.
     pub fn active(&self) -> &Workspace {
-        &self.list[self.active]
+        &self.list[self.active.min(self.list.len() - 1)]
     }
 
     pub fn active_mut(&mut self) -> &mut Workspace {
-        &mut self.list[self.active]
+        let index = self.active.min(self.list.len() - 1);
+        &mut self.list[index]
     }
 
     /// Append (and switch to) a new empty workspace; no-op at the cap.
@@ -383,6 +421,55 @@ mod tests {
         assert!(w.open_ids().is_empty());
         assert!(w.tree.is_empty(), "paneless tree resets to empty");
         assert_eq!(w.focused(), None);
+    }
+
+    #[test]
+    fn show_log_focuses_when_open_swaps_when_not() {
+        let mut w = ws();
+        w.open_auto("a");
+        w.open_auto("b");
+        w.focus("a");
+        // Not open: swaps into the focused pane, layout unchanged.
+        w.show_log("c");
+        assert_eq!(w.open_ids(), ["c", "b"]);
+        assert_eq!(w.focused(), Some("c"));
+        // Open elsewhere: only focuses.
+        w.show_log("b");
+        assert_eq!(w.open_ids(), ["c", "b"]);
+        assert_eq!(w.focused(), Some("b"));
+    }
+
+    #[test]
+    fn show_log_opens_the_first_pane_when_empty() {
+        let mut w = ws();
+        w.show_log("a");
+        assert_eq!(w.open_ids(), ["a"]);
+        assert_eq!(w.focused(), Some("a"));
+    }
+
+    #[test]
+    fn show_log_swap_drops_the_old_panes_view_state() {
+        let mut w = ws();
+        w.open_auto("a");
+        w.views.insert("a".to_owned(), LogView::default());
+        w.show_log("b");
+        assert!(!w.views.contains_key("a"), "replaced pane's view state dropped");
+    }
+
+    #[test]
+    fn pane_walk_survives_a_cyclic_tree() {
+        // A corrupted workspaces.json can make a container its own child; the
+        // walk must terminate (egui_tiles only breaks cycles during Tree::ui).
+        let mut tiles = egui_tiles::Tiles::default();
+        let pane = tiles.insert_pane("a".to_owned());
+        let cycle = tiles.insert_horizontal_tile(vec![pane]);
+        if let Some(Tile::Container(container)) = tiles.get_mut(cycle) {
+            container.add_child(cycle); // self-reference
+        }
+        let mut w = ws();
+        w.tree = Tree::new(Workspace::tree_id(9), cycle, tiles);
+        assert_eq!(w.open_ids(), ["a"]); // terminates, panes still found
+        assert!(w.find_pane("a").is_some());
     }
 
     #[test]

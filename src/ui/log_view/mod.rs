@@ -136,14 +136,25 @@ struct SearchInfo<'a> {
 /// `salt` uniquely identifies this log pane, so its internal widget ids (the
 /// bottom control panel, the scroll area) don't clash when several log views
 /// are on screen at once (egui flags duplicate ids with red warnings).
-pub fn show(ui: &mut egui::Ui, salt: egui::Id, state: &mut LogView, logs: &LogBuffer) -> bool {
+/// `has_focus` gates the global Cmd/Ctrl+F shortcut: with several panes
+/// visible, only the focused one may consume it (consumption is
+/// first-caller-wins, which would otherwise go to whichever pane renders
+/// first, not the one the user is looking at).
+pub fn show(
+    ui: &mut egui::Ui,
+    salt: egui::Id,
+    has_focus: bool,
+    state: &mut LogView,
+    logs: &LogBuffer,
+) -> bool {
     // Cmd/Ctrl+F toggles the find/grep box (focusing it on open); Escape closes it.
-    let open_key = ui.input_mut(|i| {
-        i.consume_shortcut(&egui::KeyboardShortcut::new(
-            egui::Modifiers::COMMAND,
-            egui::Key::F,
-        ))
-    });
+    let open_key = has_focus
+        && ui.input_mut(|i| {
+            i.consume_shortcut(&egui::KeyboardShortcut::new(
+                egui::Modifiers::COMMAND,
+                egui::Key::F,
+            ))
+        });
     // Escape is read but deliberately *not* consumed (unlike the shortcut above):
     // the editor/help modals render after this panel and close on the same key,
     // so swallowing it here would trap them open. A stray double-handle (closing

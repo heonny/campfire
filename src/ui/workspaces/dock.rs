@@ -104,8 +104,10 @@ impl Behavior<String> for DockBehavior<'_> {
         let recovered = proc.is_some_and(|p| p.is_recovered());
 
         // The focused pane gets an accent border so the sidebar highlight and
-        // the pane it refers to read as one.
-        let frame = if self.focused.as_deref() == Some(pane.as_str()) {
+        // the pane it refers to read as one; focus also owns the Cmd/Ctrl+F
+        // shortcut below.
+        let is_focused = self.focused.as_deref() == Some(pane.as_str());
+        let frame = if is_focused {
             theme::block_frame().stroke(egui::Stroke::new(1.5, theme::ACCENT))
         } else {
             theme::block_frame()
@@ -143,7 +145,7 @@ impl Behavior<String> for DockBehavior<'_> {
             let logs = proc.map(|p| p.logs()).unwrap_or(&empty);
             let salt = egui::Id::new(("ws_log", self.ws_id, pane.as_str()));
             let view_state = self.views.entry(pane.clone()).or_default();
-            if log_view::show(ui, salt, view_state, logs) {
+            if log_view::show(ui, salt, is_focused, view_state, logs) {
                 *self.action = Some(Action::ClearLogs(pane.clone()));
             }
         });

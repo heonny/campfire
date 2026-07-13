@@ -46,6 +46,8 @@ pub(super) fn zone_at(rect: egui::Rect, pos: egui::Pos2) -> Zone {
     candidates
         .into_iter()
         .min_by(|a, b| a.1.total_cmp(&b.1))
+        // Non-empty array; total_cmp is total even for NaN (pointer positions
+        // from egui are finite).
         .expect("four candidates")
         .0
 }
@@ -123,7 +125,12 @@ pub(super) fn insert_at(tree: &mut Tree<String>, target: TileId, zone: Zone, ser
 }
 
 fn child_index(children: Vec<TileId>, child: TileId) -> Option<usize> {
-    children.into_iter().position(|c| c == child)
+    let index = children.into_iter().position(|c| c == child);
+    // `parent_of(child)` said this container is the parent, so the child must
+    // be in it; a miss means the tree invariants broke upstream. The release
+    // fallback (index 0) stays graceful, but don't let a regression hide.
+    debug_assert!(index.is_some(), "target not found in its own parent");
+    index
 }
 
 /// What a card drop at the current pointer would do.

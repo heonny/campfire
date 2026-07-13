@@ -158,10 +158,10 @@ fn render_card(
 
     card_context_menu(&response, server, active, action);
     // A drag ends as a release, not a click, so this fires only on a genuine
-    // short click. Clicking focuses the server's pane if it is open in the
-    // active workspace; opening is the drag gesture (or the context menu).
+    // short click. Clicking shows the log in place — focus if open, else swap
+    // into the focused pane (or open the first); splitting is the drag gesture.
     if response.clicked() {
-        *action = Some(Action::FocusLog(server.id.clone()));
+        *action = Some(Action::ShowLog(server.id.clone()));
     }
     ui.add_space(6.0);
 }
@@ -248,7 +248,7 @@ pub fn rail(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
                 .on_hover_text(&server.name)
                 .clicked()
             {
-                *action = Some(Action::FocusLog(server.id.clone()));
+                *action = Some(Action::ShowLog(server.id.clone()));
             }
             ui.add_space(8.0);
         }

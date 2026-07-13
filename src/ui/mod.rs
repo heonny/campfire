@@ -28,8 +28,10 @@ pub enum Action {
     /// Open this server's log in the active workspace at an automatic position
     /// (the accessible non-drag path: the card context menu).
     OpenLog(String),
-    /// Focus this server's pane in the active workspace, if it is open there.
-    FocusLog(String),
+    /// Show this server's log in the active workspace without changing the
+    /// layout (card click): focus it if open, else swap it into the focused
+    /// pane, or open it as the first pane of an empty workspace.
+    ShowLog(String),
     /// Move the server at index `from` to index `to` in the list (drag reorder).
     /// Indices are into the same rendered `View::servers`, resolved this frame.
     Reorder {
