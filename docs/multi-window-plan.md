@@ -4,10 +4,11 @@
 > phases below were superseded during review by a workspace model: tabbed
 > workspaces (≤100), each an egui_tiles split of ≤4 log panes, opened by
 > **dragging a server card into the dock** (drop position decides the split),
-> rearranged by dragging pane titles, resizable, and persisted to
-> `workspaces.json`. See `src/ui/workspaces/` and the CLAUDE.md
-> "Workspaces" section for the as-built architecture; the plan below is kept
-> for history.
+> rearranged by dragging pane titles, and resizable. Workspaces are
+> session-only — a `workspaces.json` persistence layer shipped briefly and was
+> then removed as not worth the state. See `src/ui/workspaces/` and the
+> CLAUDE.md "Workspaces" section for the as-built architecture; the plan below
+> is kept for history.
 
 ## Context
 

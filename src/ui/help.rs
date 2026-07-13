@@ -50,10 +50,10 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                  by side). Drag a pane's title to rearrange, drag the gaps to \
                  resize, and × closes a pane. Tabs above bundle layouts into \
                  workspaces: + adds one, double-click renames, middle-click (or \
-                 ×, or Cmd/Ctrl+W) closes, Cmd/Ctrl+1–9 and 0 switch tabs, and \
-                 the layout is remembered across launches. Clicking a card shows \
-                 that log in the focused pane; right-click → Open log opens \
-                 without dragging.",
+                 ×, or Cmd/Ctrl+W) closes, and Cmd/Ctrl+1–9 and 0 switch tabs \
+                 (workspaces reset on relaunch). Clicking a card shows that log \
+                 in the focused pane; right-click → Open log opens without \
+                 dragging.",
             );
             section(
                 ui,
@@ -67,9 +67,8 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                 ui,
                 "Where config is stored",
                 "Servers are saved to your OS app-config directory under \
-                 com.heonny.campfire/servers.toml; running-state and the \
-                 workspace layout live next to it in running.json and \
-                 workspaces.json.",
+                 com.heonny.campfire/servers.toml; running-state lives next to \
+                 it in running.json.",
             );
             section(
                 ui,

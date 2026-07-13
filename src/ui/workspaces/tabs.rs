@@ -65,10 +65,8 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
         let name = buffer.trim();
         if !name.is_empty()
             && let Some(ws) = wss.list.get_mut(index)
-            && ws.name != name
         {
             ws.name = name.to_owned();
-            wss.dirty = true;
         }
     }
     if let Some(index) = start_rename {
