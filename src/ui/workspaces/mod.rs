@@ -11,7 +11,10 @@
 //! lifecycle operations still go through [`Action`]s.
 
 mod dock;
+mod drop;
 mod tabs;
+
+use drop::Zone;
 
 use crate::ui::log_view::LogView;
 use crate::ui::{Action, View};
@@ -23,6 +26,8 @@ use std::collections::HashMap;
 pub const MAX_PANES: usize = 4;
 /// At most this many workspaces (tabs).
 pub const MAX_WORKSPACES: usize = 100;
+/// The rejection notice when a workspace is already showing [`MAX_PANES`] logs.
+const FULL_NOTICE: &str = "A workspace shows at most 4 logs — close one first.";
 
 /// One workspace: a named split view over server ids.
 pub struct Workspace {
@@ -57,6 +62,12 @@ impl Workspace {
     /// Server ids with an open pane, in tree order. Walks from the root so
     /// detached tiles never count.
     pub fn open_ids(&self) -> Vec<String> {
+        self.pane_tiles().into_iter().map(|(_, id)| id).collect()
+    }
+
+    /// `(tile, server id)` for every pane reachable from the root, in tree
+    /// order — the hit-test set for drop targeting.
+    fn pane_tiles(&self) -> Vec<(TileId, String)> {
         let mut out = Vec::new();
         if let Some(root) = self.tree.root {
             collect_panes(&self.tree, root, &mut out);
@@ -79,24 +90,44 @@ impl Workspace {
         }
     }
 
-    /// Open `server_id` at an automatic position: appended to the root
-    /// container, or wrapping a single root pane in a horizontal split. Already
-    /// open → just focus (one pane per server per workspace). Returns a
-    /// user-facing notice when the workspace is full.
+    /// Open `server_id` at an automatic position (the non-drag path): appended
+    /// to the root container, or wrapping a single root pane in a horizontal
+    /// split. See [`Workspace::open_at`] for the shared rules.
     pub fn open_auto(&mut self, server_id: &str) -> Option<&'static str> {
+        self.open_at(None, server_id)
+    }
+
+    /// Open `server_id`'s log pane. `target` places it against an existing
+    /// pane's side (drag-to-place); `None` appends automatically. Already open
+    /// → just focus (one pane per server per workspace). Returns a user-facing
+    /// notice when the workspace is full. Module-internal: external callers go
+    /// through [`Workspace::open_auto`] or the dock's drop handling.
+    fn open_at(
+        &mut self,
+        target: Option<(TileId, Zone)>,
+        server_id: &str,
+    ) -> Option<&'static str> {
         if self.is_open(server_id) {
             self.focused = Some(server_id.to_owned());
             return None;
         }
         if self.open_ids().len() >= MAX_PANES {
-            return Some("A workspace shows at most 4 logs — close one first.");
+            return Some(FULL_NOTICE);
         }
-        match self.tree.root {
-            None => {
-                self.tree =
-                    Tree::new_horizontal(Self::tree_id(self.id), vec![server_id.to_owned()]);
+        match (target, self.tree.root) {
+            (Some((tile, zone)), Some(_)) => {
+                drop::insert_at(&mut self.tree, tile, zone, server_id);
             }
-            Some(root) => {
+            (_, None) => {
+                // First pane: a bare pane root (what egui_tiles' simplify would
+                // reduce a single-child container to anyway), so the later
+                // "wrap the root pane" split paths behave the same in headless
+                // tests as after an in-app simplify pass.
+                let mut tiles = egui_tiles::Tiles::default();
+                let root = tiles.insert_pane(server_id.to_owned());
+                self.tree = Tree::new(Self::tree_id(self.id), root, tiles);
+            }
+            (None, Some(root)) => {
                 let pane = self.tree.tiles.insert_pane(server_id.to_owned());
                 if matches!(self.tree.tiles.get(root), Some(Tile::Container(_))) {
                     // Append at the end of the existing root container
@@ -156,9 +187,9 @@ impl Workspace {
     }
 }
 
-fn collect_panes(tree: &Tree<String>, tile: TileId, out: &mut Vec<String>) {
+fn collect_panes(tree: &Tree<String>, tile: TileId, out: &mut Vec<(TileId, String)>) {
     match tree.tiles.get(tile) {
-        Some(Tile::Pane(server)) => out.push(server.clone()),
+        Some(Tile::Pane(server)) => out.push((tile, server.clone())),
         Some(Tile::Container(container)) => {
             for child in container.children_vec() {
                 collect_panes(tree, child, out);
@@ -234,11 +265,25 @@ impl Workspaces {
         }
     }
 
-    /// Render the tab strip and the active workspace's dock.
-    pub fn show(&mut self, ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
+    /// Render the tab strip and the active workspace's dock, then the card-drop
+    /// overlay when a sidebar card is being dragged over it. Returns the dock's
+    /// screen rect (the sidebar uses last frame's to gate its reorder) and any
+    /// rejection notice from a drop.
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        view: &View,
+        action: &mut Option<Action>,
+        drag: &crate::ui::SidebarDrag,
+    ) -> (egui::Rect, Option<&'static str>) {
         tabs::strip(ui, self);
         ui.add_space(8.0);
+        let dock_rect = ui.available_rect_before_wrap();
         dock::show_active(ui, self, view, action);
+        // After the tree rendered, its pane rects are laid out for this frame —
+        // exactly what the drop preview needs.
+        let notice = drop::handle_card_drag(ui, self.active_mut(), drag, dock_rect);
+        (dock_rect, notice)
     }
 }
 

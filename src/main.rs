@@ -114,6 +114,10 @@ struct CampfireApp {
     /// Whether the sidebar (project list) is collapsed to give the log area the
     /// full width. Session-only; not persisted.
     sidebar_collapsed: bool,
+    /// The workspace dock's screen rect from the previous frame. The sidebar
+    /// renders first each frame and needs it to tell a card drag released over
+    /// the dock (a drop) apart from a reorder within the list.
+    dock_rect: Option<egui::Rect>,
 }
 
 impl CampfireApp {
@@ -174,6 +178,7 @@ impl CampfireApp {
             runtime,
             runtime_path,
             sidebar_collapsed: false,
+            dock_rect: None,
         }
     }
 
@@ -578,6 +583,8 @@ impl eframe::App for CampfireApp {
             .size_range(SIDEBAR_MIN_WIDTH..=420.0)
             .frame(theme::canvas_frame(margin))
             .show_separator_line(false);
+        let mut drag = ui::SidebarDrag::default();
+        let last_dock_rect = self.dock_rect;
         theme::with_accent_resize_indicator(ui, |ui| {
             // `show_switched` slides via the global `animation_time`; bump it just
             // for this call (restored right after) so the collapse/expand eases
@@ -592,7 +599,7 @@ impl eframe::App for CampfireApp {
                 expanded_panel,
                 |ui, is_expanded| {
                     if is_expanded {
-                        ui::server_list::show(ui, &view, &mut action);
+                        drag = ui::server_list::show(ui, &view, &mut action, last_dock_rect);
                     } else {
                         ui::server_list::rail(ui, &view, &mut action);
                     }
@@ -600,14 +607,19 @@ impl eframe::App for CampfireApp {
             );
             ctx.all_styles_mut(|s| s.animation_time = saved_anim);
         });
-        egui::CentralPanel::default()
+        let central = egui::CentralPanel::default()
             .frame(theme::canvas_frame(egui::Margin {
                 left: 4,
                 right: 12,
                 top: 4,
                 bottom: 12,
             }))
-            .show(ui, |ui| self.workspaces.show(ui, &view, &mut action));
+            .show(ui, |ui| self.workspaces.show(ui, &view, &mut action, &drag));
+        let (dock_rect, drop_notice) = central.inner;
+        self.dock_rect = Some(dock_rect);
+        if let Some(notice) = drop_notice {
+            self.notice = Some(notice.to_owned());
+        }
 
         if let Some(action) = action {
             self.apply_action(action, ui.ctx().clone());

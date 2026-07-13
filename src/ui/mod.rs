@@ -43,6 +43,16 @@ pub enum Action {
     ToggleSidebar,
 }
 
+/// A sidebar card mid-drag, reported by the server list each frame so the
+/// workspace dock can preview and accept the drop.
+#[derive(Default)]
+pub struct SidebarDrag {
+    /// The server id being dragged, if a card drag is in flight.
+    pub server: Option<String>,
+    /// The drag was released this frame (the drop moment).
+    pub finished: bool,
+}
+
 /// Read-only view of the app state that the panels render from.
 pub struct View<'a> {
     pub servers: &'a [ServerConfig],

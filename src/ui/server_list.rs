@@ -4,12 +4,12 @@
 //! (the dragged card floats to the cursor and the rest slide aside, animated); a
 //! left click selects, a right click opens the context menu.
 
-use super::{Action, View, icon_button, icons, status_dot, status_dot_fill};
+use super::{Action, SidebarDrag, View, icon_button, icons, status_dot, status_dot_fill};
 use crate::model::ServerConfig;
 use crate::process::running::Status;
 use crate::theme;
 use eframe::egui;
-use egui_dnd::{DragDropItem, Handle, dnd};
+use egui_dnd::{DragDropItem, Handle, ItemState, dnd};
 
 /// egui_dnd tracks each draggable by a stable [`egui::Id`]; key it off the
 /// server's own id so it survives reordering. `&ServerConfig` is not `Hash`, so
@@ -21,7 +21,18 @@ impl DragDropItem for &ServerConfig {
     }
 }
 
-pub fn show(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
+/// Render the sidebar. `dock_rect` is the workspace dock's rect from the LAST
+/// frame (the sidebar renders first): a card drag released inside it is a
+/// drop-into-dock, so the reorder that egui_dnd still reports (it always snaps
+/// to the closest list slot, however far the pointer is) must be swallowed.
+/// Returns the in-flight card drag for the dock's drop preview.
+pub fn show(
+    ui: &mut egui::Ui,
+    view: &View,
+    action: &mut Option<Action>,
+    dock_rect: Option<egui::Rect>,
+) -> SidebarDrag {
+    let mut drag = SidebarDrag::default();
     theme::block_frame().show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
@@ -53,11 +64,17 @@ pub fn show(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
                 // dnd's `shift_vec` has the same semantics), so no translation.
                 let response = dnd(ui, "server_reorder").show(
                     view.servers.iter(),
-                    |ui, server, handle, _state| {
-                        render_card(ui, view, server, handle, action);
+                    |ui, server, handle, state| {
+                        render_card(ui, view, server, handle, state, action, &mut drag.server);
                     },
                 );
-                if let Some(update) = response.final_update() {
+                drag.finished = response.is_drag_finished();
+                let over_dock = dock_rect
+                    .zip(ui.ctx().pointer_hover_pos())
+                    .is_some_and(|(rect, pos)| rect.contains(pos));
+                if let Some(update) = response.final_update()
+                    && !over_dock
+                {
                     *action = Some(Action::Reorder {
                         from: update.from,
                         to: update.to,
@@ -65,6 +82,7 @@ pub fn show(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
                 }
             });
     });
+    drag
 }
 
 /// Render one server card inside its drag handle. The whole card is the handle
@@ -75,8 +93,14 @@ fn render_card(
     view: &View,
     server: &ServerConfig,
     handle: Handle<'_>,
+    state: ItemState,
     action: &mut Option<Action>,
+    dragging: &mut Option<String>,
 ) {
+    // Report the in-flight drag so the dock can preview/accept a drop.
+    if state.dragged {
+        *dragging = Some(server.id.clone());
+    }
     let running = view.running.get(&server.id);
     let active = running.is_some_and(|p| !p.is_terminal());
     let status = running.map(|p| p.status().clone()).unwrap_or(Status::Stopped);
