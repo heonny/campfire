@@ -13,7 +13,7 @@ use crate::theme;
 use crate::ui::log_view::{self, LogView};
 use crate::ui::{Action, View, icon_button, icons, status_dot, status_text};
 use eframe::egui;
-use egui_tiles::{Behavior, TileId, UiResponse};
+use egui_tiles::{Behavior, ResizeState, TileId, UiResponse};
 use std::collections::HashMap;
 
 pub(super) fn show_active(
@@ -90,6 +90,18 @@ impl Behavior<String> for DockBehavior<'_> {
     // app's blocks-on-canvas layout.
     fn gap_width(&self, _style: &egui::Style) -> f32 {
         8.0
+    }
+
+    // egui_tiles fills the idle gap with a gap-wide darkened band by default;
+    // sections here separate by surface contrast, not lines, so the gap stays
+    // bare canvas and the handle only shows as a slim accent line on
+    // hover/drag — same language as the sidebar's resize indicator.
+    fn resize_stroke(&self, _style: &egui::Style, resize_state: ResizeState) -> egui::Stroke {
+        match resize_state {
+            ResizeState::Idle => egui::Stroke::NONE,
+            ResizeState::Hovering => egui::Stroke::new(1.0, theme::ACCENT),
+            ResizeState::Dragging => egui::Stroke::new(1.5, theme::ACCENT),
+        }
     }
 
     fn pane_ui(&mut self, ui: &mut egui::Ui, tile_id: TileId, pane: &mut String) -> UiResponse {

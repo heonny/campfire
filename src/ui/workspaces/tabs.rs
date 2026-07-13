@@ -86,11 +86,10 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
     }
 }
 
-/// One workspace chip. The label carries the click/double-click sense and the
-/// × is its own button, so the two never fight over the same pixels. The
-/// active chip is a white card with the usual hairline; inactive chips sit
-/// borderless on the canvas with weak text, and only the active chip offers
-/// its × — quiet, like modern tab strips.
+/// One workspace chip, quiet like a modern tab strip. The active tab is a
+/// white card with the usual hairline and its × close; inactive tabs are
+/// chromeless buttons (weak text, the standard hover fill) that switch on
+/// click. Double-click renames either.
 fn chip(
     ui: &mut egui::Ui,
     index: usize,
@@ -100,39 +99,33 @@ fn chip(
     start_rename: &mut Option<usize>,
 ) {
     let ws = &wss.list[index];
-    let selected = index == wss.active;
-    let (fill, stroke) = if selected {
-        (
-            egui::Color32::WHITE,
-            egui::Stroke::new(1.0, theme::CARD_BORDER),
-        )
-    } else {
-        (egui::Color32::TRANSPARENT, egui::Stroke::NONE)
-    };
+    if index != wss.active {
+        let button = egui::Button::new(egui::RichText::new(&ws.name).weak())
+            .frame_when_inactive(false);
+        let response = ui.add(button);
+        if response.double_clicked() {
+            *start_rename = Some(index);
+        } else if response.clicked() {
+            *select = Some(index);
+        }
+        return;
+    }
     egui::Frame::new()
-        .fill(fill)
-        .stroke(stroke)
+        .fill(egui::Color32::WHITE)
+        .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
         .corner_radius(egui::CornerRadius::same(6))
         .inner_margin(egui::Margin::symmetric(10, 4))
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            let text = if selected {
-                egui::RichText::new(&ws.name).strong()
-            } else {
-                egui::RichText::new(&ws.name).weak()
-            };
             let label = ui.add(
-                egui::Label::new(text)
+                egui::Label::new(egui::RichText::new(&ws.name).strong())
                     .selectable(false)
                     .sense(egui::Sense::click()),
             );
             if label.double_clicked() {
                 *start_rename = Some(index);
-            } else if label.clicked() {
-                *select = Some(index);
             }
-            if selected
-                && wss.list.len() > 1
+            if wss.list.len() > 1
                 && ui
                     .add(icon_button(icons::close()))
                     .on_hover_text("Close workspace")
