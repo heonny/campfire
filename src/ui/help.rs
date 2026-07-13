@@ -44,6 +44,17 @@ pub fn show(ui: &mut egui::Ui) -> bool {
             );
             section(
                 ui,
+                "Workspaces",
+                "Drag a project card into the log area to open its log — the \
+                 highlighted half shows where it will split (up to 4 logs side \
+                 by side). Drag a pane's title to rearrange, drag the gaps to \
+                 resize, and × closes a pane. Tabs above bundle layouts into \
+                 workspaces: + adds one, double-click renames, and the layout is \
+                 remembered across launches. Clicking a card focuses its pane; \
+                 right-click → Open log opens without dragging.",
+            );
+            section(
+                ui,
                 "Logs",
                 "Press Cmd/Ctrl+F to open the find/grep box (Esc closes it): find \
                  highlights matches and steps between them, grep filters the lines. \
@@ -54,8 +65,9 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                 ui,
                 "Where config is stored",
                 "Servers are saved to your OS app-config directory under \
-                 com.heonny.campfire/servers.toml; running-state lives next to \
-                 it in running.json.",
+                 com.heonny.campfire/servers.toml; running-state and the \
+                 workspace layout live next to it in running.json and \
+                 workspaces.json.",
             );
             section(
                 ui,

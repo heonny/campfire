@@ -146,8 +146,16 @@ pub(super) fn handle_card_drag(
     drag: &SidebarDrag,
     dock_rect: egui::Rect,
 ) -> Option<&'static str> {
+    // Drive the overlay fade every frame (also back DOWN when the drag leaves
+    // the dock or ends), so the next drag starts from transparent again.
+    let pointer = ui.ctx().pointer_hover_pos();
+    let over_dock = drag.server.is_some() && pointer.is_some_and(|p| dock_rect.contains(p));
+    let fade = ui
+        .ctx()
+        .animate_bool(egui::Id::new("card_drop_fade"), over_dock);
+
     let server = drag.server.as_deref()?;
-    let pos = ui.ctx().pointer_hover_pos()?;
+    let pos = pointer?;
     if !dock_rect.contains(pos) {
         return None;
     }
@@ -167,7 +175,7 @@ pub(super) fn handle_card_drag(
             .unwrap_or(Target::Append)
     };
 
-    paint_preview(ui, ws, &target, server, pos, dock_rect);
+    paint_preview(ui, ws, &target, server, pos, dock_rect, fade);
 
     if !drag.finished {
         return None;
@@ -186,6 +194,7 @@ pub(super) fn handle_card_drag(
 /// The translucent accent overlay marking where the drop would land (or a
 /// "full" hint when it can't). Painted on the foreground layer so it sits above
 /// the pane contents.
+#[allow(clippy::too_many_arguments)] // straight-line paint inputs
 fn paint_preview(
     ui: &egui::Ui,
     ws: &Workspace,
@@ -193,6 +202,7 @@ fn paint_preview(
     server: &str,
     pos: egui::Pos2,
     dock: egui::Rect,
+    fade: f32,
 ) {
     let painter = ui.ctx().layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
@@ -211,12 +221,12 @@ fn paint_preview(
             painter.rect_filled(
                 rect,
                 egui::CornerRadius::same(8),
-                theme::ACCENT_WEAK.gamma_multiply(0.6),
+                theme::ACCENT_WEAK.gamma_multiply(0.6 * fade),
             );
             painter.rect_stroke(
                 rect,
                 egui::CornerRadius::same(8),
-                egui::Stroke::new(2.0, theme::ACCENT),
+                egui::Stroke::new(2.0, theme::ACCENT.gamma_multiply(fade)),
                 egui::StrokeKind::Inside,
             );
         }

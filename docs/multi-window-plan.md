@@ -1,6 +1,13 @@
 # Multi-window log monitoring — implementation plan
 
-> Status: **planned, not yet implemented.** Staged rollout below.
+> Status: **implemented** (workspaces edition). The original click-to-open
+> phases below were superseded during review by a workspace model: tabbed
+> workspaces (≤100), each an egui_tiles split of ≤4 log panes, opened by
+> **dragging a server card into the dock** (drop position decides the split),
+> rearranged by dragging pane titles, resizable, and persisted to
+> `workspaces.json`. See `src/ui/workspaces/` and the CLAUDE.md
+> "Workspaces" section for the as-built architecture; the plan below is kept
+> for history.
 
 ## Context
 

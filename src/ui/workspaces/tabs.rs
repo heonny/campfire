@@ -21,6 +21,7 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
+                let mut active_rect: Option<egui::Rect> = None;
                 for index in 0..wss.list.len() {
                     match &mut wss.renaming {
                         Some((i, buffer)) if *i == index => {
@@ -29,7 +30,7 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
                             }
                         }
                         _ => {
-                            chip(
+                            let rect = chip(
                                 ui,
                                 index,
                                 wss,
@@ -37,9 +38,13 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
                                 &mut close,
                                 &mut start_rename,
                             );
+                            if index == wss.active {
+                                active_rect = Some(rect);
+                            }
                         }
                     }
                 }
+                underline(ui, active_rect);
                 let can_add = wss.list.len() < MAX_WORKSPACES;
                 if ui
                     .add_enabled(can_add, icon_button(icons::add()))
@@ -82,8 +87,23 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
     }
 }
 
-/// One workspace chip. The label carries the click/double-click sense and the ×
-/// is its own button, so the two never fight over the same pixels.
+/// The accent line under the active chip, easing toward it when the active tab
+/// changes. Skipped while the active tab is being renamed (no chip rect).
+fn underline(ui: &egui::Ui, active_rect: Option<egui::Rect>) {
+    let Some(rect) = active_rect else {
+        return;
+    };
+    let ctx = ui.ctx();
+    let x = ctx.animate_value_with_time(egui::Id::new("ws_tab_line_x"), rect.left(), 0.15);
+    let w = ctx.animate_value_with_time(egui::Id::new("ws_tab_line_w"), rect.width(), 0.15);
+    let y = rect.bottom() + 2.0;
+    ui.painter()
+        .hline(x..=(x + w), y, egui::Stroke::new(2.0, theme::ACCENT));
+}
+
+/// One workspace chip; returns its rect (for the active underline). The label
+/// carries the click/double-click sense and the × is its own button, so the
+/// two never fight over the same pixels.
 fn chip(
     ui: &mut egui::Ui,
     index: usize,
@@ -91,7 +111,7 @@ fn chip(
     select: &mut Option<usize>,
     close: &mut Option<usize>,
     start_rename: &mut Option<usize>,
-) {
+) -> egui::Rect {
     let ws = &wss.list[index];
     let selected = index == wss.active;
     let (fill, stroke) = if selected {
@@ -99,7 +119,7 @@ fn chip(
     } else {
         (theme::CARD_FILL, egui::Stroke::new(1.0, theme::CARD_BORDER))
     };
-    egui::Frame::new()
+    let frame = egui::Frame::new()
         .fill(fill)
         .stroke(stroke)
         .corner_radius(egui::CornerRadius::same(6))
@@ -130,6 +150,7 @@ fn chip(
                 *close = Some(index);
             }
         });
+    frame.response.rect
 }
 
 /// The inline rename editor. Returns `true` when the edit should be committed
