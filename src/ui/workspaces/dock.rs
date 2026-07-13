@@ -11,7 +11,7 @@ use crate::process::log_buffer::LogBuffer;
 use crate::process::running::Status;
 use crate::theme;
 use crate::ui::log_view::{self, LogView};
-use crate::ui::{Action, View, icon_button, icons, status_color, status_dot, status_text};
+use crate::ui::{Action, View, icon_button, icons, status_dot, status_text};
 use eframe::egui;
 use egui_tiles::{Behavior, TileId, UiResponse};
 use std::collections::HashMap;
@@ -103,12 +103,12 @@ impl Behavior<String> for DockBehavior<'_> {
         let active = proc.is_some_and(|p| !p.is_terminal());
         let recovered = proc.is_some_and(|p| p.is_recovered());
 
-        // The focused pane gets an accent border so the sidebar highlight and
-        // the pane it refers to read as one; focus also owns the Cmd/Ctrl+F
-        // shortcut below.
+        // The focused pane gets a softened accent border so the sidebar
+        // highlight and the pane it refers to read as one, without shouting;
+        // focus also owns the Cmd/Ctrl+F shortcut below.
         let is_focused = self.focused.as_deref() == Some(pane.as_str());
         let frame = if is_focused {
-            theme::block_frame().stroke(egui::Stroke::new(1.5, theme::ACCENT))
+            theme::block_frame().stroke(egui::Stroke::new(1.0, theme::ACCENT.gamma_multiply(0.55)))
         } else {
             theme::block_frame()
         };
@@ -160,9 +160,11 @@ impl Behavior<String> for DockBehavior<'_> {
     }
 }
 
-/// One pane's header. The title area (dot + name + pill) doubles as the pane's
-/// drag handle and focus click target — its response is returned; the buttons
-/// sit right-aligned outside that rect so they never fight the drag.
+/// One pane's header, kept slim: a status dot (state in its tooltip) and the
+/// truncating name on the left; start/stop/restart and × on the right. Only
+/// the name truncates and nothing renders after it, so a narrow pane elides
+/// the title instead of overlapping the buttons. The title strip doubles as
+/// the pane's drag handle and focus click target — its response is returned.
 #[allow(clippy::too_many_arguments)] // straight-line render inputs, same shape as log_view::render_body
 fn pane_header(
     ui: &mut egui::Ui,
@@ -208,21 +210,16 @@ fn pane_header(
                 *action = Some(Action::Start(server.id.clone()));
             }
             let inner = ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                status_dot(ui, status);
+                let mut state = status_text(status);
+                if recovered {
+                    state.push_str(" · recovered from a previous session — restart for live logs");
+                }
+                status_dot(ui, status).on_hover_text(state);
                 ui.add(
                     egui::Label::new(egui::RichText::new(&server.name).strong())
                         .truncate()
                         .selectable(false),
                 );
-                if let Some(port) = server.port {
-                    ui.weak(format!(":{port}"));
-                }
-                status_pill(ui, status);
-                if recovered {
-                    ui.weak("recovered").on_hover_text(
-                        "Running since before this app started — restart for live logs",
-                    );
-                }
             });
             // The title strip senses click (focus) and drag (rearrange).
             let response = ui
@@ -236,21 +233,4 @@ fn pane_header(
         });
     });
     title.expect("title strip was rendered above")
-}
-
-/// A small status pill: the status text in its color, on a pale tint of it.
-fn status_pill(ui: &mut egui::Ui, status: &Status) {
-    let color = status_color(status);
-    let tint = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 36);
-    egui::Frame::new()
-        .fill(tint)
-        .corner_radius(egui::CornerRadius::same(9))
-        .inner_margin(egui::Margin::symmetric(8, 2))
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(status_text(status))
-                    .color(color)
-                    .small(),
-            );
-        });
 }

@@ -7,6 +7,12 @@ use egui::{Color32, CornerRadius, Margin, Stroke, Visuals, vec2};
 /// Campfire accent — a warm ember orange — and its pale selection tint.
 pub const ACCENT: Color32 = Color32::from_rgb(0xC2, 0x41, 0x0C);
 pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFB, 0xE3, 0xCC);
+/// A whisper of the accent for a focused card's fill — calmer than
+/// `ACCENT_WEAK`, which is reserved for transient emphasis (drop previews).
+pub const ACCENT_TINT: Color32 = Color32::from_rgb(0xFD, 0xF3, 0xE9);
+
+/// Toast surface: warm near-black chip with white text, floating bottom-center.
+pub const TOAST_FILL: Color32 = Color32::from_rgb(0x2B, 0x29, 0x26);
 
 /// Destructive-action fill (the confirm dialog's Delete button). A muted brick
 /// red — the same hue as the crashed-status color — dark enough that white text

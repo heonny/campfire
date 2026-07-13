@@ -82,6 +82,24 @@ const SIDEBAR_RAIL_WIDTH: f32 = 44.0;
 /// panel so hover and other feedback keep the snappy default.
 const SIDEBAR_SLIDE_TIME: f32 = 0.35;
 
+/// How long a toast stays before fading out.
+const TOAST_LIFETIME: Duration = Duration::from_secs(4);
+
+/// A transient bottom-center notification.
+struct Toast {
+    text: String,
+    until: std::time::Instant,
+}
+
+impl Toast {
+    fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            until: std::time::Instant::now() + TOAST_LIFETIME,
+        }
+    }
+}
+
 /// Root application state.
 struct CampfireApp {
     servers: Vec<ServerConfig>,
@@ -92,8 +110,9 @@ struct CampfireApp {
     /// The workspace tabs and their log-pane splits (mutable UI state; process
     /// data stays in `running`).
     workspaces: Workspaces,
-    /// Transient one-line notice (e.g. a port conflict that blocked a start).
-    notice: Option<String>,
+    /// Transient toast (e.g. a port conflict that blocked a start): the text
+    /// and when it expires. Rendered floating bottom-center, fading in/out.
+    toast: Option<Toast>,
     /// Servers awaiting a restart once their current process has terminated.
     restart_pending: HashSet<String>,
     /// Cached per-server CPU/memory usage.
@@ -137,7 +156,7 @@ impl CampfireApp {
         let runtime_path = runtime_state::state_path();
         let mut running: HashMap<String, RunningProcess> = HashMap::new();
         let mut runtime: HashMap<String, RuntimeEntry> = HashMap::new();
-        let mut notice = None;
+        let mut toast = None;
 
         if let Some(path) = &runtime_path {
             let orphans = runtime_state::confirmed_orphans(&runtime_state::load_from(path));
@@ -161,7 +180,7 @@ impl CampfireApp {
             // Persist the reconciled set: adopted entries kept, stopped ones gone.
             let entries: Vec<RuntimeEntry> = runtime.values().cloned().collect();
             let _ = runtime_state::save_to(path, &entries);
-            notice = reconcile_notice(running.len(), stopped);
+            toast = reconcile_notice(running.len(), stopped).map(Toast::new);
         }
 
         // Restore the saved workspace layout, minus any servers deleted while
@@ -175,7 +194,7 @@ impl CampfireApp {
             editor: None,
             pending_delete: None,
             workspaces,
-            notice,
+            toast,
             restart_pending: HashSet::new(),
             metrics: metrics::Metrics::new(),
             show_help: false,
@@ -194,21 +213,23 @@ impl CampfireApp {
         if let Some(port) = server.port
             && !port::is_port_free(port)
         {
-            self.notice = Some(format!(
+            self.toast = Some(Toast::new(format!(
                 "Can't start '{}': port {port} is already in use.",
                 server.name
-            ));
+            )));
             return;
         }
         let wake = move || ctx.request_repaint();
         match RunningProcess::spawn(&server, wake) {
             Ok(proc) => {
-                self.notice = None;
                 self.track_running(&server, proc.pid());
                 self.running.insert(server.id, proc);
             }
             Err(err) => {
-                self.notice = Some(format!("Failed to start '{}': {err}", server.name));
+                self.toast = Some(Toast::new(format!(
+                    "Failed to start '{}': {err}",
+                    server.name
+                )));
             }
         }
     }
@@ -249,7 +270,7 @@ impl CampfireApp {
             }
             Action::OpenLog(id) => {
                 if let Some(notice) = self.workspaces.active_mut().open_auto(&id) {
-                    self.notice = Some(notice.to_owned());
+                    self.toast = Some(Toast::new(notice));
                 }
             }
             Action::ShowLog(id) => self.workspaces.active_mut().show_log(&id),
@@ -348,7 +369,7 @@ impl CampfireApp {
             ..store::ConfigDoc::default()
         };
         if let Err(err) = store::save(&doc) {
-            self.notice = Some(format!("Failed to save config: {err}"));
+            self.toast = Some(Toast::new(format!("Failed to save config: {err}")));
         }
     }
 
@@ -387,6 +408,48 @@ impl CampfireApp {
             shutdown::unregister(entry.pid);
             self.persist_runtime();
         }
+    }
+
+    /// Render the transient toast: a dark chip floating bottom-center, fading
+    /// in while alive and out after [`TOAST_LIFETIME`]. Cleared once invisible.
+    fn render_toast(&mut self, ctx: &egui::Context) {
+        let fade_id = egui::Id::new("toast_fade");
+        let Some(toast) = &self.toast else {
+            // Keep the animation settled at 0 so the next toast fades in.
+            ctx.animate_bool(fade_id, false);
+            return;
+        };
+        let now = std::time::Instant::now();
+        let alive = now < toast.until;
+        let alpha = ctx.animate_bool(fade_id, alive);
+        if !alive && alpha <= 0.0 {
+            self.toast = None;
+            return;
+        }
+        if alive {
+            // Wake exactly when the fade-out should start.
+            ctx.request_repaint_after(toast.until - now);
+        }
+        egui::Area::new(egui::Id::new("toast"))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -24.0))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.set_opacity(alpha);
+                egui::Frame::new()
+                    .fill(theme::TOAST_FILL)
+                    .corner_radius(egui::CornerRadius::same(8))
+                    .inner_margin(egui::Margin::symmetric(14, 9))
+                    .shadow(egui::Shadow {
+                        offset: [0, 4],
+                        blur: 16,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(50),
+                    })
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(&toast.text).color(egui::Color32::WHITE));
+                    });
+            });
     }
 
     /// Rewrite `running.json` from the current in-memory set. Best-effort: a
@@ -547,10 +610,6 @@ impl eframe::App for CampfireApp {
                                     {
                                         action = Some(Action::OpenHelp);
                                     }
-                                    if let Some(notice) = &self.notice {
-                                        let warn = ui.visuals().warn_fg_color;
-                                        ui.colored_label(warn, notice);
-                                    }
                                 },
                             );
                         });
@@ -629,7 +688,7 @@ impl eframe::App for CampfireApp {
         let (dock_rect, drop_notice) = central.inner;
         self.dock_rect = Some(dock_rect);
         if let Some(notice) = drop_notice {
-            self.notice = Some(notice.to_owned());
+            self.toast = Some(Toast::new(notice));
         }
 
         if let Some(action) = action {
@@ -674,6 +733,7 @@ impl eframe::App for CampfireApp {
         }
 
         self.render_delete_confirm(ui.ctx());
+        self.render_toast(ui.ctx());
     }
 }
 

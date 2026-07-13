@@ -115,23 +115,19 @@ fn render_card(
     let focused = view.focused == Some(server.id.as_str());
     let open = view.open_logs.iter().any(|s| s == &server.id);
 
-    // The focused pane's card takes the accent tint; a merely-open (unfocused)
-    // pane keeps the grey fill but an accent border, so which logs are up in the
-    // active workspace is visible at a glance. The dragged card is deliberately
-    // NOT tinted: egui_dnd already lifts it to follow the cursor, and an extra
-    // accent fill on top read as a "red box" flickering over the drop target.
-    let (fill, border) = if focused {
-        (theme::ACCENT_WEAK, theme::ACCENT)
-    } else if open {
-        (theme::CARD_FILL, theme::ACCENT)
+    // Open/focused read through a slim accent bar on the card's left edge —
+    // focused additionally gets a whisper of tint — instead of loud accent
+    // borders. Borders stay the neutral hairline everywhere.
+    let fill = if focused {
+        theme::ACCENT_TINT
     } else {
-        (theme::CARD_FILL, theme::CARD_BORDER)
+        theme::CARD_FILL
     };
 
     let response = handle.sense(egui::Sense::click()).ui(ui, |ui| {
         theme::card_frame()
             .fill(fill)
-            .stroke(egui::Stroke::new(1.0, border))
+            .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
@@ -155,6 +151,18 @@ fn render_card(
                 metrics_row(ui, metrics);
             });
     });
+
+    // The open/focused marker: a small rounded accent bar hugging the left
+    // edge, inside the border radius.
+    if open || focused {
+        let rect = response.rect;
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(rect.left() + 1.5, rect.top() + 8.0),
+            egui::pos2(rect.left() + 4.5, rect.bottom() - 8.0),
+        );
+        ui.painter()
+            .rect_filled(bar, egui::CornerRadius::same(2), theme::ACCENT);
+    }
 
     card_context_menu(&response, server, active, action);
     // A drag ends as a release, not a click, so this fires only on a genuine

@@ -88,7 +88,9 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
 
 /// One workspace chip. The label carries the click/double-click sense and the
 /// × is its own button, so the two never fight over the same pixels. The
-/// active chip reads through its white fill + accent border alone.
+/// active chip is a white card with the usual hairline; inactive chips sit
+/// borderless on the canvas with weak text, and only the active chip offers
+/// its × — quiet, like modern tab strips.
 fn chip(
     ui: &mut egui::Ui,
     index: usize,
@@ -100,9 +102,12 @@ fn chip(
     let ws = &wss.list[index];
     let selected = index == wss.active;
     let (fill, stroke) = if selected {
-        (egui::Color32::WHITE, egui::Stroke::new(1.0, theme::ACCENT))
+        (
+            egui::Color32::WHITE,
+            egui::Stroke::new(1.0, theme::CARD_BORDER),
+        )
     } else {
-        (theme::CARD_FILL, egui::Stroke::new(1.0, theme::CARD_BORDER))
+        (egui::Color32::TRANSPARENT, egui::Stroke::NONE)
     };
     egui::Frame::new()
         .fill(fill)
@@ -114,7 +119,7 @@ fn chip(
             let text = if selected {
                 egui::RichText::new(&ws.name).strong()
             } else {
-                egui::RichText::new(&ws.name)
+                egui::RichText::new(&ws.name).weak()
             };
             let label = ui.add(
                 egui::Label::new(text)
@@ -126,7 +131,8 @@ fn chip(
             } else if label.clicked() {
                 *select = Some(index);
             }
-            if wss.list.len() > 1
+            if selected
+                && wss.list.len() > 1
                 && ui
                     .add(icon_button(icons::close()))
                     .on_hover_text("Close workspace")

@@ -95,10 +95,12 @@ pub(crate) fn status_dot_fill(status: &Status) -> egui::Color32 {
 }
 
 /// Paint a small filled status circle inline (no font glyph dependency).
-pub fn status_dot(ui: &mut egui::Ui, status: &Status) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+/// Returns the response so callers can hang a tooltip off it.
+pub fn status_dot(ui: &mut egui::Ui, status: &Status) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
     ui.painter()
         .circle_filled(rect.center(), 4.0, status_dot_fill(status));
+    response
 }
 
 pub fn status_text(status: &Status) -> String {
