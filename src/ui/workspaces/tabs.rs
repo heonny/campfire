@@ -1,12 +1,21 @@
 //! The workspace tab strip: one chip per workspace (click = switch,
-//! double-click = rename inline, × = close), plus a trailing add button.
-//! Sits directly on the canvas above the dock, scrolling horizontally when the
-//! chips overflow.
+//! double-click = rename inline, middle-click / × = close), plus a trailing
+//! add button. Sits directly on the canvas above the dock, scrolling
+//! horizontally when the chips overflow.
+//!
+//! Every strip item — active chip, inactive tab buttons, the rename editor,
+//! the + button — is laid out at the same fixed [`TAB_HEIGHT`] inside an
+//! explicit centered row. Mixed intrinsic heights in an implicit layout are
+//! what made labels and buttons sit crooked against each other.
 
 use super::{MAX_WORKSPACES, Workspaces};
 use crate::theme;
 use crate::ui::{icon_button, icons};
 use eframe::egui;
+
+/// One height for everything in the strip, so baselines line up across the
+/// active chip, inactive tabs, the rename editor, and the add button.
+const TAB_HEIGHT: f32 = 26.0;
 
 pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
     // Deferred mutations: applied after the loop so indices stay stable.
@@ -21,10 +30,7 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                // Match the inactive-tab buttons' vertical padding to the
-                // active chip's frame margin, so the strip keeps one height
-                // regardless of how many workspaces exist.
-                ui.spacing_mut().button_padding = egui::vec2(10.0, 4.0);
+                ui.set_min_height(TAB_HEIGHT);
                 for index in 0..wss.list.len() {
                     match &mut wss.renaming {
                         Some((i, buffer)) if *i == index => {
@@ -45,8 +51,9 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
                     }
                 }
                 let can_add = wss.list.len() < MAX_WORKSPACES;
+                let add = icon_button(icons::add()).min_size(egui::vec2(TAB_HEIGHT, TAB_HEIGHT));
                 if ui
-                    .add_enabled(can_add, icon_button(icons::add()))
+                    .add_enabled(can_add, add)
                     .on_hover_text(if can_add {
                         "New workspace"
                     } else {
@@ -97,7 +104,8 @@ fn chip(
     let ws = &wss.list[index];
     if index != wss.active {
         let button = egui::Button::new(egui::RichText::new(&ws.name).weak())
-            .frame_when_inactive(false);
+            .frame_when_inactive(false)
+            .min_size(egui::vec2(0.0, TAB_HEIGHT));
         let response = ui.add(button);
         if response.middle_clicked() {
             *close = Some(index);
@@ -108,37 +116,51 @@ fn chip(
         }
         return;
     }
+    // Vertical size comes from the fixed-height row inside; the frame only
+    // adds the horizontal padding, so the chip matches the buttons exactly.
     egui::Frame::new()
         .fill(egui::Color32::WHITE)
         .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
         .corner_radius(egui::CornerRadius::same(6))
-        .inner_margin(egui::Margin::symmetric(10, 4))
+        .inner_margin(egui::Margin::symmetric(10, 0))
         .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            let label = ui.add(
-                egui::Label::new(egui::RichText::new(&ws.name).strong())
-                    .selectable(false)
-                    .sense(egui::Sense::click()),
-            );
-            if label.middle_clicked() {
-                *close = Some(index);
-            } else if label.double_clicked() {
-                *start_rename = Some(index);
-            }
-            if ui
-                .add(icon_button(icons::close()))
-                .on_hover_text("Close workspace")
-                .clicked()
-            {
-                *close = Some(index);
-            }
+            ui.horizontal(|ui| {
+                ui.set_min_height(TAB_HEIGHT);
+                ui.spacing_mut().item_spacing.x = 6.0;
+                // Compact padding for the × so it stays a small square target.
+                ui.spacing_mut().button_padding = egui::vec2(2.0, 2.0);
+                let label = ui.add(
+                    egui::Label::new(egui::RichText::new(&ws.name).strong())
+                        .selectable(false)
+                        .sense(egui::Sense::click()),
+                );
+                if label.middle_clicked() {
+                    *close = Some(index);
+                } else if label.double_clicked() {
+                    *start_rename = Some(index);
+                }
+                if ui
+                    .add(icon_button(icons::close()))
+                    .on_hover_text("Close workspace")
+                    .clicked()
+                {
+                    *close = Some(index);
+                }
+            });
         });
 }
 
-/// The inline rename editor. Returns `true` when the edit should be committed
-/// (Enter or focus loss); Escape reverts by committing the untouched original.
+/// The inline rename editor, centered at the shared strip height. Returns
+/// `true` when the edit should be committed (Enter or focus loss); Escape
+/// reverts by committing the untouched original.
 fn rename_field(ui: &mut egui::Ui, buffer: &mut String) -> bool {
-    let response = ui.add(
+    let (_, rect) = ui.allocate_space(egui::vec2(130.0, TAB_HEIGHT));
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    let response = child.add(
         egui::TextEdit::singleline(buffer)
             .desired_width(120.0)
             .font(egui::TextStyle::Body),
