@@ -43,7 +43,14 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces, view: &View) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 ui.set_min_height(TAB_HEIGHT);
+                // A lone empty workspace shows no tab at all — just the +.
+                // The chip appears once a log opens (named after the server).
+                let hide_solo_empty =
+                    wss.list.len() == 1 && wss.list[0].open_ids().is_empty();
                 for index in 0..wss.list.len() {
+                    if hide_solo_empty {
+                        break;
+                    }
                     match &mut wss.renaming {
                         Some((i, buffer)) if *i == index => {
                             if rename_field(ui, buffer) {
