@@ -8,16 +8,28 @@
 //! explicit centered row. Mixed intrinsic heights in an implicit layout are
 //! what made labels and buttons sit crooked against each other.
 
-use super::{MAX_WORKSPACES, Workspaces};
+use super::{MAX_WORKSPACES, Workspace, Workspaces};
 use crate::theme;
-use crate::ui::{icon_button, icons};
+use crate::ui::{View, icon_button, icons};
 use eframe::egui;
 
 /// One height for everything in the strip, so baselines line up across the
 /// active chip, inactive tabs, the rename editor, and the add button.
 const TAB_HEIGHT: f32 = 26.0;
 
-pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
+/// A tab holding a single log wears that server's name; only tabs bundling two
+/// or more (or empty ones) go by their workspace name.
+fn tab_title(ws: &Workspace, view: &View) -> String {
+    let open = ws.open_ids();
+    if let [only] = open.as_slice()
+        && let Some(server) = view.servers.iter().find(|s| s.id == *only)
+    {
+        return server.name.clone();
+    }
+    ws.name.clone()
+}
+
+pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces, view: &View) {
     // Deferred mutations: applied after the loop so indices stay stable.
     let mut select: Option<usize> = None;
     let mut close: Option<usize> = None;
@@ -43,6 +55,7 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
                                 ui,
                                 index,
                                 wss,
+                                view,
                                 &mut select,
                                 &mut close,
                                 &mut start_rename,
@@ -93,17 +106,20 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces) {
 /// chromeless buttons (weak text, the standard hover fill) that switch on
 /// click. Double-click renames, middle-click closes — closing the last
 /// workspace just leaves a fresh empty one.
+#[allow(clippy::too_many_arguments)] // straight-line render inputs
 fn chip(
     ui: &mut egui::Ui,
     index: usize,
     wss: &Workspaces,
+    view: &View,
     select: &mut Option<usize>,
     close: &mut Option<usize>,
     start_rename: &mut Option<usize>,
 ) {
     let ws = &wss.list[index];
+    let title = tab_title(ws, view);
     if index != wss.active {
-        let button = egui::Button::new(egui::RichText::new(&ws.name).weak())
+        let button = egui::Button::new(egui::RichText::new(&title).weak())
             .frame_when_inactive(false)
             .min_size(egui::vec2(0.0, TAB_HEIGHT));
         let response = ui.add(button);
@@ -130,7 +146,7 @@ fn chip(
                 // Compact padding for the × so it stays a small square target.
                 ui.spacing_mut().button_padding = egui::vec2(2.0, 2.0);
                 let label = ui.add(
-                    egui::Label::new(egui::RichText::new(&ws.name).strong())
+                    egui::Label::new(egui::RichText::new(&title).strong())
                         .selectable(false)
                         .sense(egui::Sense::click()),
                 );

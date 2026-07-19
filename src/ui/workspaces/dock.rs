@@ -87,9 +87,9 @@ impl Behavior<String> for DockBehavior<'_> {
     }
 
     // Widen the default 1px gap so the canvas shows between panes, matching the
-    // app's blocks-on-canvas layout.
+    // app's blocks-on-canvas layout (6 keeps it snug — logs want the space).
     fn gap_width(&self, _style: &egui::Style) -> f32 {
-        8.0
+        6.0
     }
 
     // egui_tiles fills the idle gap with a gap-wide darkened band by default;

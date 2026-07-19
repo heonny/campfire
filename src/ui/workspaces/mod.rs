@@ -367,8 +367,8 @@ impl Workspaces {
         drag: &crate::ui::SidebarDrag,
     ) -> (egui::Rect, Option<&'static str>) {
         self.handle_shortcuts(ui.ctx());
-        tabs::strip(ui, self);
-        ui.add_space(8.0);
+        tabs::strip(ui, self, view);
+        ui.add_space(4.0);
         let dock_rect = ui.available_rect_before_wrap();
         dock::show_active(ui, self, view, action);
         // After the tree rendered, its pane rects are laid out for this frame —
