@@ -241,6 +241,10 @@ pub struct Workspaces {
     next_id: u64,
     /// In-progress tab rename: (workspace index, edit buffer).
     renaming: Option<(usize, String)>,
+    /// A lone empty workspace normally shows no tab (just the +); pressing +
+    /// in that state reveals it instead of stacking a second one. Cleared
+    /// whenever content names the tab or the state resets.
+    solo_revealed: bool,
 }
 
 impl Workspaces {
@@ -250,6 +254,23 @@ impl Workspaces {
             active: 0,
             next_id: 2,
             renaming: None,
+            solo_revealed: false,
+        }
+    }
+
+    /// Whether the strip should show no tab at all: a single empty workspace
+    /// that hasn't been explicitly revealed with +.
+    fn solo_hidden(&self) -> bool {
+        !self.solo_revealed && self.list.len() == 1 && self.list[0].open_ids().is_empty()
+    }
+
+    /// The + button: from the hidden lone-empty state it reveals the existing
+    /// workspace (so exactly ONE tab appears, not two); otherwise it adds one.
+    fn add_or_reveal(&mut self) {
+        if self.solo_hidden() {
+            self.solo_revealed = true;
+        } else {
+            self.add();
         }
     }
 
@@ -335,6 +356,7 @@ impl Workspaces {
             return;
         }
         self.list.remove(index);
+        self.solo_revealed = false; // a re-emptied strip goes back to just +
         if self.list.is_empty() {
             let id = self.next_id;
             self.next_id += 1;
@@ -512,6 +534,28 @@ mod tests {
         assert_eq!(wss.active, 0);
         wss.switch_to(99); // out of range: no-op
         assert_eq!(wss.active, 0);
+    }
+
+    #[test]
+    fn plus_reveals_the_lone_empty_workspace_before_adding() {
+        let mut wss = Workspaces::new();
+        assert!(wss.solo_hidden(), "fresh state shows only the +");
+        wss.add_or_reveal();
+        assert_eq!(wss.list.len(), 1, "first + reveals, not adds");
+        assert!(!wss.solo_hidden());
+        wss.add_or_reveal();
+        assert_eq!(wss.list.len(), 2, "second + adds normally");
+        // Closing back down to a lone empty workspace re-hides the tab.
+        wss.close(1);
+        wss.close(0);
+        assert!(wss.solo_hidden());
+    }
+
+    #[test]
+    fn a_lone_workspace_with_content_is_never_hidden() {
+        let mut wss = Workspaces::new();
+        wss.active_mut().open_auto("a");
+        assert!(!wss.solo_hidden());
     }
 
     #[test]

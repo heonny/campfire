@@ -14,8 +14,11 @@ use crate::ui::{View, icon_button, icons};
 use eframe::egui;
 
 /// One height for everything in the strip, so baselines line up across the
-/// active chip, inactive tabs, the rename editor, and the add button.
-const TAB_HEIGHT: f32 = 26.0;
+/// active chip, inactive tabs, the rename editor, and the add button. Must be
+/// at least a Button's natural height (text + 2×button_padding.y ≈ 27): egui
+/// centers row items against a running height estimate, so items only align
+/// with each other when they are exactly the same size.
+const TAB_HEIGHT: f32 = 28.0;
 
 /// A tab holding a single log wears that server's name; only tabs bundling two
 /// or more (or empty ones) go by their workspace name.
@@ -43,12 +46,16 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces, view: &View) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 ui.set_min_height(TAB_HEIGHT);
-                // A lone empty workspace shows no tab at all — just the +.
-                // The chip appears once a log opens (named after the server).
-                let hide_solo_empty =
-                    wss.list.len() == 1 && wss.list[0].open_ids().is_empty();
+                // Once content names the tab, the reveal flag has done its job;
+                // clearing it re-hides the tab if the workspace empties again.
+                if !wss.active().open_ids().is_empty() {
+                    wss.solo_revealed = false;
+                }
+                // A lone empty workspace shows no tab at all — just the + —
+                // unless + explicitly revealed it.
+                let hide = wss.solo_hidden();
                 for index in 0..wss.list.len() {
-                    if hide_solo_empty {
+                    if hide {
                         break;
                     }
                     match &mut wss.renaming {
@@ -81,7 +88,7 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces, view: &View) {
                     })
                     .clicked()
                 {
-                    wss.add();
+                    wss.add_or_reveal();
                 }
             });
         });
