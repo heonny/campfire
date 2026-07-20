@@ -120,6 +120,16 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces, view: &View) {
 /// chromeless buttons (weak text, the standard hover fill) that switch on
 /// click. Double-click renames, middle-click closes — closing the last
 /// workspace just leaves a fresh empty one.
+/// Chip metrics: horizontal text padding, the × hit box, and its gap.
+const CHIP_PAD_X: f32 = 10.0;
+const CLOSE_SIZE: f32 = 16.0;
+const CLOSE_GAP: f32 = 6.0;
+
+/// One workspace chip, drawn by hand so BOTH states share the exact same text
+/// pipeline: one rect of [`TAB_HEIGHT`], one galley, manually centered.
+/// Composing different widgets (Button vs Frame+Label) gave each its own
+/// vertical text placement, so the grey and white tab titles never sat on one
+/// baseline.
 #[allow(clippy::too_many_arguments)] // straight-line render inputs
 fn chip(
     ui: &mut egui::Ui,
@@ -132,52 +142,77 @@ fn chip(
 ) {
     let ws = &wss.list[index];
     let title = tab_title(ws, view);
-    if index != wss.active {
-        let button = egui::Button::new(egui::RichText::new(&title).weak())
-            .frame_when_inactive(false)
-            .min_size(egui::vec2(0.0, TAB_HEIGHT));
-        let response = ui.add(button);
-        if response.middle_clicked() {
-            *close = Some(index);
-        } else if response.double_clicked() {
-            *start_rename = Some(index);
-        } else if response.clicked() {
-            *select = Some(index);
-        }
-        return;
+    let selected = index == wss.active;
+
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let color = if selected {
+        ui.visuals().strong_text_color()
+    } else {
+        ui.visuals().weak_text_color()
+    };
+    let galley = ui.painter().layout_no_wrap(title, font, color);
+
+    let close_extra = if selected { CLOSE_GAP + CLOSE_SIZE } else { 0.0 };
+    let width = CHIP_PAD_X + galley.size().x + close_extra + CHIP_PAD_X;
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(width, TAB_HEIGHT), egui::Sense::click());
+
+    // Background: white card for the active tab, hover fill for inactive ones.
+    let painter = ui.painter();
+    if selected {
+        painter.rect(
+            rect,
+            egui::CornerRadius::same(6),
+            egui::Color32::WHITE,
+            egui::Stroke::new(1.0, theme::CARD_BORDER),
+            egui::StrokeKind::Inside,
+        );
+    } else if response.hovered() {
+        painter.rect_filled(rect, egui::CornerRadius::same(6), theme::BUTTON_HOVER_FILL);
     }
-    // Vertical size comes from the fixed-height row inside; the frame only
-    // adds the horizontal padding, so the chip matches the buttons exactly.
-    egui::Frame::new()
-        .fill(egui::Color32::WHITE)
-        .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
-        .corner_radius(egui::CornerRadius::same(6))
-        .inner_margin(egui::Margin::symmetric(10, 0))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.set_min_height(TAB_HEIGHT);
-                ui.spacing_mut().item_spacing.x = 6.0;
-                // Compact padding for the × so it stays a small square target.
-                ui.spacing_mut().button_padding = egui::vec2(2.0, 2.0);
-                let label = ui.add(
-                    egui::Label::new(egui::RichText::new(&title).strong())
-                        .selectable(false)
-                        .sense(egui::Sense::click()),
-                );
-                if label.middle_clicked() {
-                    *close = Some(index);
-                } else if label.double_clicked() {
-                    *start_rename = Some(index);
-                }
-                if ui
-                    .add(icon_button(icons::close()))
-                    .on_hover_text("Close workspace")
-                    .clicked()
-                {
-                    *close = Some(index);
-                }
-            });
-        });
+
+    // The title, vertically centered by its real galley height.
+    let text_pos = egui::pos2(
+        rect.left() + CHIP_PAD_X,
+        rect.center().y - galley.size().y / 2.0,
+    );
+    painter.galley(text_pos, galley, color);
+
+    // The active tab's ×: its own interact rect inside the chip (registered
+    // after the chip response, so it wins the pointer over that area).
+    if selected {
+        let close_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.right() - CHIP_PAD_X - CLOSE_SIZE / 2.0, rect.center().y),
+            egui::vec2(CLOSE_SIZE, CLOSE_SIZE),
+        );
+        let close_response = ui
+            .interact(
+                close_rect,
+                response.id.with("close"),
+                egui::Sense::click(),
+            )
+            .on_hover_text("Close workspace");
+        if close_response.hovered() {
+            ui.painter().rect_filled(
+                close_rect.expand(2.0),
+                egui::CornerRadius::same(4),
+                theme::BUTTON_HOVER_FILL,
+            );
+        }
+        icons::close().paint_at(ui, close_rect);
+        if close_response.clicked() {
+            *close = Some(index);
+            return;
+        }
+    }
+
+    if response.middle_clicked() {
+        *close = Some(index);
+    } else if response.double_clicked() {
+        *start_rename = Some(index);
+    } else if response.clicked() && !selected {
+        *select = Some(index);
+    }
 }
 
 /// The inline rename editor, centered at the shared strip height. Returns
