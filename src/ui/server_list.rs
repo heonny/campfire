@@ -177,16 +177,10 @@ fn render_card(
             });
     });
 
-    // The open/focused marker: a small rounded accent bar hugging the left
-    // edge, inside the border radius.
+    // The open/focused marker: an accent stripe flush with the card's left
+    // edge, running the full height.
     if open || focused {
-        let rect = response.rect;
-        let bar = egui::Rect::from_min_max(
-            egui::pos2(rect.left() + 1.5, rect.top() + 8.0),
-            egui::pos2(rect.left() + 4.5, rect.bottom() - 8.0),
-        );
-        ui.painter()
-            .rect_filled(bar, egui::CornerRadius::same(2), theme::ACCENT);
+        paint_edge_stripe(ui.painter(), response.rect, theme::ACCENT);
     }
 
     card_context_menu(&response, server, active, action);
@@ -197,6 +191,46 @@ fn render_card(
         *action = Some(Action::ShowLog(server.id.clone()));
     }
     ui.add_space(6.0);
+}
+
+/// Paint the open/focused marker: an accent stripe hugging the card's left
+/// edge for its full height. A plain rounded rect can't do this — epaint
+/// clamps a corner radius to half the shape's width, so a 4px-wide bar could
+/// never follow the card's 8px corner arc and would poke past the border. The
+/// stripe is instead the card's inner rounded outline clipped at `W`: its tips
+/// trace the exact same corner arcs as the card, so it sits flush inside it.
+fn paint_edge_stripe(painter: &egui::Painter, card: egui::Rect, color: egui::Color32) {
+    use std::f32::consts::PI;
+    // Inside the 1px hairline border; R matches card_frame's radius minus it.
+    const R: f32 = 7.0;
+    const W: f32 = 4.0;
+    const ARC_STEPS: usize = 8;
+    let rect = card.shrink(1.0);
+    // Where the stripe's straight right edge meets the corner arcs.
+    let dy = R - (R * R - (R - W) * (R - W)).sqrt();
+
+    let mut points = Vec::with_capacity(2 * (ARC_STEPS + 1) + 1);
+    points.push(egui::pos2(rect.left() + W, rect.top() + dy));
+    // Top-left arc: from that meeting point around to the flat left edge.
+    let center = egui::pos2(rect.left() + R, rect.top() + R);
+    let a0 = (dy - R).atan2(W - R);
+    for i in 1..=ARC_STEPS {
+        let a = a0 + (-PI - a0) * (i as f32 / ARC_STEPS as f32);
+        points.push(center + R * egui::vec2(a.cos(), a.sin()));
+    }
+    // Bottom-left arc, mirrored, back to the right edge (the polygon closes
+    // itself with the straight line up to the first point).
+    let center = egui::pos2(rect.left() + R, rect.bottom() - R);
+    let a1 = (R - dy).atan2(W - R);
+    for i in 0..=ARC_STEPS {
+        let a = PI + (a1 - PI) * (i as f32 / ARC_STEPS as f32);
+        points.push(center + R * egui::vec2(a.cos(), a.sin()));
+    }
+    painter.add(egui::Shape::convex_polygon(
+        points,
+        color,
+        egui::Stroke::NONE,
+    ));
 }
 
 /// The right-click menu: lifecycle actions (Start, or Stop/Restart while
