@@ -33,55 +33,78 @@ pub fn show(
     dock_rect: Option<egui::Rect>,
 ) -> SidebarDrag {
     let mut drag = SidebarDrag::default();
-    theme::block_frame().show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.horizontal(|ui| {
-            ui.heading("Projects");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .add(icon_button(icons::add()))
-                    .on_hover_text("Add project")
-                    .clicked()
-                {
-                    *action = Some(Action::OpenNew);
-                }
+    // The block's right inner margin is moved inside the scroll area (as
+    // content_margin): the cards keep their width, but the floating scroll bar
+    // now rides in that empty gutter instead of on top of the cards.
+    let gutter = 12.0;
+    theme::block_frame()
+        .inner_margin(egui::Margin {
+            left: 12,
+            right: 0,
+            top: 12,
+            bottom: 12,
+        })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.heading("Projects");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Re-inset the button by the margin the frame no longer has.
+                    ui.add_space(gutter);
+                    if ui
+                        .add(icon_button(icons::add()))
+                        .on_hover_text("Add project")
+                        .clicked()
+                    {
+                        *action = Some(Action::OpenNew);
+                    }
+                });
             });
-        });
-        ui.add_space(8.0);
+            ui.add_space(8.0);
 
-        // The scroll area fills the remaining height, which also stretches the
-        // block to the bottom of the panel.
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                if view.servers.is_empty() {
-                    ui.weak("등록된 프로젝트가 없습니다");
-                    return;
-                }
-                // egui_dnd renders each card, animates the reorder, and reports
-                // the final move. We forward that as an Action so the app stays
-                // the sole mutator — its `from`/`to` match `move_in_place` (egui_
-                // dnd's `shift_vec` has the same semantics), so no translation.
-                let response = dnd(ui, "server_reorder").show(
-                    view.servers.iter(),
-                    |ui, server, handle, state| {
-                        render_card(ui, view, server, handle, state, action, &mut drag.server);
-                    },
-                );
-                drag.finished = response.is_drag_finished();
-                let over_dock = dock_rect
-                    .zip(ui.ctx().pointer_hover_pos())
-                    .is_some_and(|(rect, pos)| rect.contains(pos));
-                if let Some(update) = response.final_update()
-                    && !over_dock
-                {
-                    *action = Some(Action::Reorder {
-                        from: update.from,
-                        to: update.to,
-                    });
-                }
-            });
-    });
+            // Slim the bar and pad it off the block edge so both its dormant
+            // (2px) and hovered (6px) widths sit centered in the gutter.
+            let scroll = &mut ui.spacing_mut().scroll;
+            scroll.bar_width = 6.0;
+            scroll.bar_outer_margin = 4.0;
+
+            // The scroll area fills the remaining height, which also stretches
+            // the block to the bottom of the panel.
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .content_margin(egui::Margin {
+                    right: gutter as i8,
+                    ..egui::Margin::ZERO
+                })
+                .show(ui, |ui| {
+                    if view.servers.is_empty() {
+                        ui.weak("등록된 프로젝트가 없습니다");
+                        return;
+                    }
+                    // egui_dnd renders each card, animates the reorder, and reports
+                    // the final move. We forward that as an Action so the app stays
+                    // the sole mutator — its `from`/`to` match `move_in_place` (egui_
+                    // dnd's `shift_vec` has the same semantics), so no translation.
+                    let response = dnd(ui, "server_reorder").show(
+                        view.servers.iter(),
+                        |ui, server, handle, state| {
+                            render_card(ui, view, server, handle, state, action, &mut drag.server);
+                        },
+                    );
+                    drag.finished = response.is_drag_finished();
+                    let over_dock = dock_rect
+                        .zip(ui.ctx().pointer_hover_pos())
+                        .is_some_and(|(rect, pos)| rect.contains(pos));
+                    if let Some(update) = response.final_update()
+                        && !over_dock
+                    {
+                        *action = Some(Action::Reorder {
+                            from: update.from,
+                            to: update.to,
+                        });
+                    }
+                });
+        });
     drag
 }
 
@@ -103,7 +126,9 @@ fn render_card(
     }
     let running = view.running.get(&server.id);
     let active = running.is_some_and(|p| !p.is_terminal());
-    let status = running.map(|p| p.status().clone()).unwrap_or(Status::Stopped);
+    let status = running
+        .map(|p| p.status().clone())
+        .unwrap_or(Status::Stopped);
     // Guard on `active`: cached metrics linger up to a refresh interval after a
     // server stops.
     let metrics = if active {
