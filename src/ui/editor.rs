@@ -341,6 +341,30 @@ fn default_shell_display() -> String {
     }
 }
 
+/// Run `add` with the dropdown chrome matched to the text fields: a white box
+/// with the same hairline, instead of egui's grey button pill — so a form's
+/// inputs read as one family. The stroke is set for every widget state at the
+/// same width, so hover doesn't shift the layout (see the theme's note on
+/// per-button strokes).
+fn field_chrome<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    ui.scope(|ui| {
+        let visuals = &mut ui.visuals_mut().widgets;
+        let stroke = egui::Stroke::new(1.0, crate::theme::CARD_BORDER);
+        for w in [
+            &mut visuals.inactive,
+            &mut visuals.hovered,
+            &mut visuals.active,
+            &mut visuals.open,
+        ] {
+            w.bg_stroke = stroke;
+            w.weak_bg_fill = egui::Color32::WHITE;
+        }
+        visuals.hovered.weak_bg_fill = crate::theme::CARD_FILL;
+        add(ui)
+    })
+    .inner
+}
+
 /// A small bold section heading with a little breathing room under it.
 fn section_label(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(text).strong());
@@ -422,13 +446,15 @@ pub fn show(
 
                 ui.label("Preset");
                 let mut chosen = form.preset;
-                egui::ComboBox::from_id_salt("preset")
-                    .selected_text(form.preset.label())
-                    .show_ui(ui, |ui| {
-                        for preset in Preset::ALL {
-                            ui.selectable_value(&mut chosen, preset, preset.label());
-                        }
-                    });
+                field_chrome(ui, |ui| {
+                    egui::ComboBox::from_id_salt("preset")
+                        .selected_text(form.preset.label())
+                        .show_ui(ui, |ui| {
+                            for preset in Preset::ALL {
+                                ui.selectable_value(&mut chosen, preset, preset.label());
+                            }
+                        });
+                });
                 if chosen != form.preset {
                     form.apply_preset(chosen);
                 }
@@ -497,29 +523,31 @@ pub fn show(
                             .iter()
                             .find(|t| form.command == gradle::task_command(&t.name))
                             .map(|t| t.name.clone());
-                        egui::ComboBox::from_id_salt("gradle_tasks")
-                            .selected_text(
-                                current
-                                    .clone()
-                                    .unwrap_or_else(|| "Select a task…".to_string()),
-                            )
-                            .show_ui(ui, |ui| {
-                                for t in &project.tasks {
-                                    let selected = current.as_deref() == Some(t.name.as_str());
-                                    if ui
-                                        .selectable_label(
-                                            selected,
-                                            format!("{}  —  {}", t.name, t.description),
-                                        )
-                                        .clicked()
-                                    {
-                                        picked = Some((
-                                            gradle::task_command(&t.name),
-                                            project.port_hint,
-                                        ));
+                        field_chrome(ui, |ui| {
+                            egui::ComboBox::from_id_salt("gradle_tasks")
+                                .selected_text(
+                                    current
+                                        .clone()
+                                        .unwrap_or_else(|| "Select a task…".to_string()),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for t in &project.tasks {
+                                        let selected = current.as_deref() == Some(t.name.as_str());
+                                        if ui
+                                            .selectable_label(
+                                                selected,
+                                                format!("{}  —  {}", t.name, t.description),
+                                            )
+                                            .clicked()
+                                        {
+                                            picked = Some((
+                                                gradle::task_command(&t.name),
+                                                project.port_hint,
+                                            ));
+                                        }
                                     }
-                                }
-                            });
+                                });
+                        });
                         ui.end_row();
 
                         // Detected plugins on their own row so a long list wraps
@@ -566,24 +594,28 @@ pub fn show(
                             .iter()
                             .find(|(name, _)| form.command == project.manager.run(name))
                             .map(|(name, _)| name.clone());
-                        egui::ComboBox::from_id_salt("scripts")
-                            .selected_text(
-                                current
-                                    .clone()
-                                    .unwrap_or_else(|| "Select a script…".to_string()),
-                            )
-                            .show_ui(ui, |ui| {
-                                for (name, raw) in &project.scripts {
-                                    let selected = current.as_deref() == Some(name.as_str());
-                                    if ui
-                                        .selectable_label(selected, format!("{name}  —  {raw}"))
-                                        .clicked()
-                                    {
-                                        picked =
-                                            Some((project.manager.run(name), project.port_hint));
+                        field_chrome(ui, |ui| {
+                            egui::ComboBox::from_id_salt("scripts")
+                                .selected_text(
+                                    current
+                                        .clone()
+                                        .unwrap_or_else(|| "Select a script…".to_string()),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for (name, raw) in &project.scripts {
+                                        let selected = current.as_deref() == Some(name.as_str());
+                                        if ui
+                                            .selectable_label(selected, format!("{name}  —  {raw}"))
+                                            .clicked()
+                                        {
+                                            picked = Some((
+                                                project.manager.run(name),
+                                                project.port_hint,
+                                            ));
+                                        }
                                     }
-                                }
-                            });
+                                });
+                        });
                         ui.weak(format!("via {}", project.manager.as_str()));
                     });
                     ui.end_row();
