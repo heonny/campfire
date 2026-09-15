@@ -1,6 +1,40 @@
 //! Small filesystem helpers shared across persistence modules.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// The user's home directory, if the platform can tell us.
+fn home_dir() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
+}
+
+/// A path for display: the home directory prefix shown as `~`, so a long
+/// absolute path fits a text field with its telling tail visible.
+pub fn collapse_home(path: &Path) -> String {
+    if let Some(home) = home_dir()
+        && let Ok(rest) = path.strip_prefix(&home)
+    {
+        if rest.as_os_str().is_empty() {
+            return "~".to_owned();
+        }
+        return format!("~/{}", rest.to_string_lossy());
+    }
+    path.to_string_lossy().into_owned()
+}
+
+/// The inverse of [`collapse_home`] for user-typed text: a leading `~` (alone
+/// or `~/…`) becomes the home directory; anything else is taken literally.
+pub fn expand_home(text: &str) -> PathBuf {
+    let text = text.trim();
+    if let Some(home) = home_dir() {
+        if text == "~" {
+            return home;
+        }
+        if let Some(rest) = text.strip_prefix("~/") {
+            return home.join(rest);
+        }
+    }
+    PathBuf::from(text)
+}
 
 /// Write `bytes` to `path` atomically: create parent directories, write to a
 /// unique per-process temp file alongside the target, then rename it into place.
@@ -62,5 +96,28 @@ mod tests {
         tmp_name.push(format!(".tmp.{}", std::process::id()));
         assert!(!path.with_file_name(tmp_name).exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod home_tests {
+    use super::*;
+
+    #[test]
+    fn home_collapses_and_expands_back() {
+        let home = home_dir().expect("home dir");
+        let inside = home.join("work").join("api");
+        assert_eq!(collapse_home(&inside), "~/work/api");
+        assert_eq!(expand_home("~/work/api"), inside);
+        assert_eq!(collapse_home(&home), "~");
+        assert_eq!(expand_home("~"), home);
+    }
+
+    #[test]
+    fn paths_outside_home_are_untouched() {
+        let outside = Path::new("/opt/srv");
+        assert_eq!(collapse_home(outside), "/opt/srv");
+        assert_eq!(expand_home("/opt/srv"), PathBuf::from("/opt/srv"));
+        assert_eq!(expand_home("~user/x"), PathBuf::from("~user/x")); // not ours to expand
     }
 }

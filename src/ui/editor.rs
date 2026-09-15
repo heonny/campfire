@@ -5,11 +5,12 @@
 //! form and reports what the user did via [`EditorOutcome`].
 
 use super::{modal_scroll, primary_button, text_button, text_input, text_input_frame};
+use crate::fs_util::{collapse_home, expand_home};
 use crate::gradle::{self, GradleProject};
 use crate::model::{EnvVar, Preset, ServerConfig};
 use crate::project::{NodeProject, detect_node_project};
 use eframe::egui;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use uuid::Uuid;
 
 /// What the user did with the editor this frame.
@@ -96,13 +97,13 @@ impl EditorForm {
             editing_id: Some(config.id.clone()),
             name: config.name.clone(),
             preset: config.preset,
-            cwd: config.cwd.to_string_lossy().into_owned(),
+            cwd: collapse_home(&config.cwd),
             command: config.command.clone(),
             port: config.port.map(|p| p.to_string()).unwrap_or_default(),
             env_file: config
                 .env_file
                 .as_ref()
-                .map(|p| p.to_string_lossy().into_owned())
+                .map(|p| collapse_home(p))
                 .unwrap_or_default(),
             env: config
                 .env
@@ -150,19 +151,20 @@ impl EditorForm {
             return;
         }
         let cwd = self.cwd.trim().to_string();
-        self.cwd_exists = cwd.is_empty() || Path::new(&cwd).is_dir();
+        let cwd_path = expand_home(&cwd);
+        self.cwd_exists = cwd.is_empty() || cwd_path.is_dir();
         self.detected = if cwd.is_empty() {
             None
         } else {
-            detect_node_project(Path::new(&cwd))
+            detect_node_project(&cwd_path)
         };
         if self.preset == Preset::SpringBoot
             && (self.gradle_file.trim().is_empty() || self.gradle_file == self.gradle_file_auto)
         {
             let located = (!cwd.is_empty())
-                .then(|| gradle::find_build_file(Path::new(&cwd)))
+                .then(|| gradle::find_build_file(&cwd_path))
                 .flatten()
-                .map(|p| p.to_string_lossy().into_owned())
+                .map(|p| collapse_home(&p))
                 .unwrap_or_default();
             self.gradle_file = located.clone();
             self.gradle_file_auto = located;
@@ -180,7 +182,7 @@ impl EditorForm {
         self.detected_gradle = if file.is_empty() {
             None
         } else {
-            gradle::detect_gradle_project(Path::new(&file))
+            gradle::detect_gradle_project(&expand_home(&file))
         };
         self.detected_gradle_for = file;
     }
@@ -233,13 +235,13 @@ impl EditorForm {
     fn gradle_dialog_dir(&self) -> Option<PathBuf> {
         let file = self.gradle_file.trim();
         if !file.is_empty()
-            && let Some(parent) = Path::new(file).parent()
+            && let Some(parent) = expand_home(file).parent()
             && !parent.as_os_str().is_empty()
         {
             return Some(parent.to_path_buf());
         }
         let cwd = self.cwd.trim();
-        (!cwd.is_empty()).then(|| PathBuf::from(cwd))
+        (!cwd.is_empty()).then(|| expand_home(cwd))
     }
 
     /// Parse and validate the form into a [`ServerConfig`], or return a
@@ -257,7 +259,8 @@ impl EditorForm {
         if cwd.is_empty() {
             return Err("Working directory is required.".to_string());
         }
-        if !Path::new(cwd).is_dir() {
+        let cwd_path = expand_home(cwd);
+        if !cwd_path.is_dir() {
             return Err(format!("Working directory '{cwd}' doesn't exist."));
         }
         let port = match self.port.trim() {
@@ -280,7 +283,7 @@ impl EditorForm {
                 value: value.clone(),
             })
             .collect();
-        let env_file = non_empty(&self.env_file).map(Into::into);
+        let env_file = non_empty(&self.env_file).map(|p| expand_home(&p));
         let shell = non_empty(&self.shell);
 
         Ok(ServerConfig {
@@ -290,7 +293,7 @@ impl EditorForm {
                 .unwrap_or_else(|| Uuid::new_v4().to_string()),
             name: name.to_string(),
             preset: self.preset,
-            cwd: cwd.into(),
+            cwd: cwd_path,
             command: command.to_string(),
             port,
             env_file,
@@ -718,6 +721,19 @@ mod tests {
             detected_gradle: None,
             detected_gradle_for: String::new(),
         }
+    }
+
+    #[test]
+    fn home_paths_show_as_tilde_and_expand_on_save() {
+        let home = directories::BaseDirs::new()
+            .unwrap()
+            .home_dir()
+            .to_path_buf();
+        let mut config = ServerConfig::from_preset("api", home.clone(), Preset::Custom);
+        config.command = "run".into();
+        let f = EditorForm::from_config(&config);
+        assert_eq!(f.cwd, "~");
+        assert_eq!(f.to_config().unwrap().cwd, home);
     }
 
     #[test]
