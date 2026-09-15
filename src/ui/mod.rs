@@ -143,23 +143,6 @@ pub fn icon_button<'a>(icon: egui::Image<'a>) -> IconButton<'a> {
     }
 }
 
-/// An icon button that stays visibly "pressed" — a soft grey box — while `on`,
-/// used for the log view's follow toggle. Chromeless at rest when off (like
-/// [`icon_button`]); when on, the same hover fill is shown at rest so the active
-/// state reads without color. `selected(on)` also announces on/off to assistive
-/// tech. The caller flips the bound flag when the button is clicked.
-pub fn icon_toggle_button<'a>(icon: egui::Image<'a>, on: bool) -> IconButton<'a> {
-    let button = egui::Button::image(icon)
-        .selected(on)
-        .frame_when_inactive(on);
-    let button = if on {
-        button.fill(crate::theme::BUTTON_HOVER_FILL)
-    } else {
-        button
-    };
-    IconButton { button }
-}
-
 /// A text-only button.
 pub fn text_button(label: &str) -> egui::Button<'_> {
     egui::Button::new(label)
@@ -168,7 +151,7 @@ pub fn text_button(label: &str) -> egui::Button<'_> {
 /// A filled accent button for the primary action (e.g. Save).
 pub fn primary_button(label: &str) -> egui::Button<'_> {
     egui::Button::new(egui::RichText::new(label).color(egui::Color32::WHITE))
-        .fill(crate::theme::ACCENT)
+        .fill(crate::theme::ACCENT_TEXT)
 }
 
 /// A weak `:port` label that opens `http://localhost:port` in the browser on

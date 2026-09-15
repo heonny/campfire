@@ -47,6 +47,7 @@ pub struct LogView {
     /// Whether the find/grep box is shown. Hidden by default; toggled with
     /// Cmd/Ctrl+F. While hidden the search is inactive (the full buffer shows).
     search_open: bool,
+    filter_open: bool,
     find: String,
     find_case: bool,
     find_word: bool,
@@ -70,6 +71,7 @@ impl Default for LogView {
     fn default() -> Self {
         Self {
             search_open: false,
+            filter_open: false,
             find: String::new(),
             find_case: false,
             find_word: false,
@@ -281,6 +283,52 @@ fn next_search_state(is_open: bool, open_key: bool, escape_key: bool) -> (bool, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_and_filter_fit_a_split_pane_and_handle_invalid_regex() {
+        let ctx = egui::Context::default();
+        crate::theme::setup(&ctx);
+        egui_extras::install_image_loaders(&ctx);
+        let mut logs = LogBuffer::default();
+        logs.push(crate::process::log_buffer::Stream::Stdout, "ready");
+        logs.push(
+            crate::process::log_buffer::Stream::Stdout,
+            "request complete",
+        );
+        let mut state = LogView {
+            search_open: true,
+            filter_open: true,
+            find: "ready".into(),
+            grep: "[".into(),
+            grep_regex: true,
+            ..Default::default()
+        };
+        for width in [340.0, 260.0] {
+            let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 260.0));
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(rect),
+                    ..Default::default()
+                },
+                |ui| {
+                    show(ui, egui::Id::new("test-log"), true, &mut state, &logs);
+                    assert!(
+                        ui.min_rect().right() <= rect.right() + 1.0,
+                        "search controls must stay inside the panel"
+                    );
+                },
+            );
+            assert!(state.cache.grep_error.is_some());
+            assert!(
+                state.cache.filter.is_none(),
+                "invalid filters must show all logs"
+            );
+            assert_eq!(state.cache.matches.len(), 1);
+        }
+        state.grep = "missing".into();
+        cache::ensure_cache(&mut state, &logs);
+        assert_eq!(state.cache.filter.as_ref().unwrap().len(), 0);
+    }
 
     #[test]
     fn displayed_all_is_identity_then_blank_row() {

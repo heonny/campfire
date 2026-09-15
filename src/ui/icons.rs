@@ -13,51 +13,6 @@ pub fn add() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/plus.svg"))
 }
 
-pub fn start() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/play.svg"))
-}
-
-/// A filled square (our own glyph, not Lucide's outlined `square`): outlined,
-/// next to ⟳ and ×, it read as a window "maximize" control.
-pub fn stop() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/stop.svg"))
-}
-
-pub fn restart() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/rotate-cw.svg"))
-}
-
-/// Leading affordance for the find field.
-pub fn search() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/search.svg"))
-}
-
-/// Leading affordance for the grep (filter) field.
-pub fn filter() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/filter.svg"))
-}
-
-/// Follow the tail — auto-scroll as new output arrives.
-pub fn follow() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/chevrons-down.svg"))
-}
-
-pub fn scroll_top() -> egui::Image<'static> {
-    sized(egui::include_image!(
-        "../../assets/icons/arrow-up-to-line.svg"
-    ))
-}
-
-pub fn scroll_bottom() -> egui::Image<'static> {
-    sized(egui::include_image!(
-        "../../assets/icons/arrow-down-to-line.svg"
-    ))
-}
-
-pub fn clear() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/eraser.svg"))
-}
-
 /// Step to the previous find match.
 pub fn chevron_up() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/chevron-up.svg"))
@@ -80,9 +35,4 @@ pub fn sidebar() -> egui::Image<'static> {
 /// Close a log pane or a workspace tab.
 pub fn close() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/x.svg"))
-}
-
-/// Toggle line wrapping in the log view.
-pub fn wrap() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/wrap-text.svg"))
 }

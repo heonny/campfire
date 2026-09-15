@@ -1,5 +1,5 @@
 //! Workspaces: tab bundles of log panes. Each workspace is a named egui_tiles
-//! split tree over server ids — up to [`MAX_PANES`] logs side by side — and the
+//! split tree over server ids — up to [`MAX_PANES`] logs per workspace — and the
 //! app keeps up to [`MAX_WORKSPACES`] workspaces switched by a tab strip above
 //! the dock. Log DATA stays in the shared `running` map; a workspace only holds
 //! layout plus its own per-server [`LogView`] state, so the same server can be
@@ -41,6 +41,7 @@ pub struct Workspace {
     views: HashMap<String, LogView>,
     /// The focused pane's server id (accent border + sidebar highlight).
     focused: Option<String>,
+    automatic_layout: bool,
 }
 
 impl Workspace {
@@ -51,6 +52,7 @@ impl Workspace {
             tree: Tree::empty(Self::tree_id(id)),
             views: HashMap::new(),
             focused: None,
+            automatic_layout: true,
         }
     }
 
@@ -81,6 +83,10 @@ impl Workspace {
 
     pub fn focused(&self) -> Option<&str> {
         self.focused.as_deref()
+    }
+
+    fn uses_compact_view(&self, available: egui::Vec2) -> bool {
+        self.open_ids().len() > 1 && (available.x < 640.0 || available.y < 340.0)
     }
 
     /// Focus `server_id`'s pane if it is open in this workspace.
@@ -119,14 +125,17 @@ impl Workspace {
         }
     }
 
-    /// Open `server_id` at an automatic position (the non-drag path): appended
-    /// to the root container, or wrapping a single root pane in a horizontal
-    /// split. See [`Workspace::open_at`] for the shared rules.
+    /// Automatically arrange new panes in two rows until the user customizes
+    /// a split. Opening an existing pane only changes focus.
     pub fn open_auto(&mut self, server_id: &str) -> Option<&'static str> {
         let before = self.open_ids().len();
         let result = self.open_at(None, server_id);
-        if result.is_none() && self.open_ids().len() > before && self.open_ids().len() >= 3 {
-            self.reflow_to_grid();
+        if self.automatic_layout
+            && result.is_none()
+            && self.open_ids().len() > before
+            && self.open_ids().len() >= 3
+        {
+            self.arrange_two_rows();
         }
         result
     }
@@ -134,7 +143,7 @@ impl Workspace {
     /// Keep three and four automatically opened panes readable with an explicit
     /// 2D tree. Drag placement still preserves a custom
     /// tree; this only applies to the automatic sidebar/context-menu path.
-    fn reflow_to_grid(&mut self) {
+    fn arrange_two_rows(&mut self) {
         let ids = self.open_ids();
         if ids.len() < 3 {
             return;
@@ -167,6 +176,7 @@ impl Workspace {
         match (target, self.tree.root) {
             (Some((tile, zone)), Some(_)) => {
                 drop::insert_at(&mut self.tree, tile, zone, server_id);
+                self.automatic_layout = false;
             }
             (_, None) => {
                 // First pane: a bare pane root (what egui_tiles' simplify would
@@ -219,6 +229,7 @@ impl Workspace {
         if open.is_empty() {
             self.tree = Tree::empty(Self::tree_id(self.id));
             self.focused = None;
+            self.automatic_layout = true;
             return;
         }
         let focus_gone = self
@@ -402,7 +413,22 @@ impl Workspaces {
         dock::show_active(ui, self, view, action);
         // After the tree rendered, its pane rects are laid out for this frame —
         // exactly what the drop preview needs.
-        let notice = drop::handle_card_drag(ui, self.active_mut(), drag, dock_rect);
+        let compact = self.active().uses_compact_view(dock_rect.size());
+        let notice = if compact {
+            if drag.finished
+                && let Some(server) = &drag.server
+                && ui
+                    .ctx()
+                    .pointer_hover_pos()
+                    .is_some_and(|pos| dock_rect.contains(pos))
+            {
+                self.active_mut().open_auto(server)
+            } else {
+                None
+            }
+        } else {
+            drop::handle_card_drag(ui, self.active_mut(), drag, dock_rect)
+        };
         (dock_rect, notice)
     }
 }
@@ -434,6 +460,21 @@ mod tests {
         assert!(w.open_auto("a").is_none());
         assert_eq!(w.open_ids(), ["a", "b"]); // no duplicate pane
         assert_eq!(w.focused(), Some("a"));
+    }
+
+    #[test]
+    fn automatic_open_preserves_a_dragged_split() {
+        let mut w = ws();
+        w.open_auto("a");
+        let tile = w.find_pane("a").unwrap();
+        w.open_at(Some((tile, Zone::Bottom)), "b");
+        let root = w.tree.root;
+        w.open_auto("c");
+        assert_eq!(
+            w.tree.root, root,
+            "adding a log must not rebuild a manual split"
+        );
+        assert_eq!(w.open_ids(), ["a", "b", "c"]);
     }
 
     #[test]

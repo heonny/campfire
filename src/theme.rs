@@ -9,6 +9,7 @@ use egui::{Color32, CornerRadius, Margin, Stroke, Visuals, vec2};
 /// Reserved for actions and brand moments (Save, links, drop preview, the
 /// multi-pane focus border), not for quiet status.
 pub const ACCENT: Color32 = Color32::from_rgb(0xF9, 0x73, 0x16);
+pub const ACCENT_TEXT: Color32 = Color32::from_rgb(0xC2, 0x41, 0x0C);
 pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFF, 0xE4, 0xCF);
 /// A whisper of the accent for a focused card's fill — calmer than
 /// `ACCENT_WEAK`, which is reserved for transient emphasis (drop previews).
@@ -27,9 +28,7 @@ pub const CARD_FILL: Color32 = Color32::WHITE;
 pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE2, 0xE6, 0xEE);
 pub const INSET_FILL: Color32 = Color32::from_rgb(0xED, 0xF0, 0xF5);
 
-/// The soft grey a chromeless icon button fills with on hover. Reused as the
-/// follow toggle's "on" fill so an engaged toggle reads as the same pressed box
-/// a hover shows (see `icon_toggle_button`).
+/// The soft grey a chromeless icon button fills with on hover.
 pub const BUTTON_HOVER_FILL: Color32 = Color32::from_rgb(0xE6, 0xEA, 0xF1);
 
 /// The app canvas: a cool light grey that the white section blocks float on.
@@ -154,6 +153,9 @@ fn install_visuals(ctx: &egui::Context) {
         style.spacing.item_spacing = vec2(8.0, 6.0);
         style.spacing.button_padding = vec2(10.0, 5.0);
         style.spacing.window_margin = Margin::same(12);
+        style
+            .text_styles
+            .insert(egui::TextStyle::Small, egui::FontId::proportional(11.0));
     });
 }
 
@@ -168,7 +170,8 @@ fn build_visuals() -> Visuals {
 
     visuals.selection.bg_fill = ACCENT_WEAK;
     visuals.selection.stroke = Stroke::new(1.0, ACCENT);
-    visuals.hyperlink_color = ACCENT;
+    visuals.hyperlink_color = ACCENT_TEXT;
+    visuals.weak_text_color = Some(Color32::from_rgb(0x6B, 0x72, 0x80));
 
     // Buttons are borderless — their only hover/press feedback is a gentle fill
     // darkening (below). egui's light theme gives inactive widgets a 0-width

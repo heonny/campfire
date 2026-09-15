@@ -18,9 +18,10 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                 "Press + to add a project: pick a preset, choose the working \
                  directory, set the command. Env vars and a .env file are optional.",
                 "Drag a card into the log area to open its log; the highlighted \
-                 half shows where it splits (up to 4 side by side). Clicking a card \
+                 half shows where it splits (up to 4 logs). Open log arranges new panes \
+                 in two rows; narrow windows show one log at a time. Clicking a card \
                  shows its log in the focused pane instead.",
-                "Start / Stop / Restart live in the pane header and the card's \
+                "Run / Stop live in the pane header; Restart is in More and the card's \
                  right-click menu. Stop waits up to 10 s for a graceful shutdown; \
                  press it again to force-quit.",
             ],
@@ -55,7 +56,7 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                  found, set Shell to `zsh -lic` so ~/.zshrc is sourced.",
                 "Click a project's :port to open localhost in the browser; the \
                  right-click menu also reveals the folder and copies the command.",
-                "Logs: 'follow' tails the output, 'wrap' folds long lines, and a \
+                "Logs: Follow tails the output; More contains Wrap and Clear output. A \
                  '↓ N new' chip appears when output arrives while scrolled up.",
                 "Workspaces are per session; projects recovered from a previous \
                  run open automatically.",

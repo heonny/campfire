@@ -26,7 +26,8 @@ install.
   press Stop again to force-quit immediately
 - **Reorder** — drag project cards up or down to change their order; it's saved
 - **Workspaces** — drag a card into the log area to open its log; up to four
-  logs side by side, resizable, bundled into tabs
+  logs in resizable panes, bundled into tabs. Open log arranges three or four
+  panes in two rows; compact windows switch between logs without losing the layout
 - **Live logs** — ANSI colors rendered, plus search, follow (tail), wrap
   toggle, an unseen-lines badge, and clear, over a bounded 5 MiB ring buffer
 - **Ready / crash notices** — a server shows *starting* until its port is

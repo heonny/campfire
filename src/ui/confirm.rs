@@ -26,7 +26,7 @@ pub fn show_delete(ui: &mut egui::Ui, name: &str) -> ConfirmOutcome {
     ui.heading("Delete project?");
     ui.add_space(4.0);
     ui.label(format!(
-        "'{name}' will be stopped and permanently removed. This can't be undone."
+        "Remove '{name}' from Campfire? Its running process will stop and its saved configuration will be deleted. Files in the project folder will remain."
     ));
     ui.add_space(12.0);
 
