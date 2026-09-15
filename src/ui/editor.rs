@@ -63,12 +63,14 @@ pub struct EditorForm {
     /// The `gradle_file` value the parse last ran for, so the build script is
     /// re-read only when the path changes.
     detected_gradle_for: String,
+    /// Snapshot used to keep a dirty form open when the modal backdrop is clicked.
+    initial_snapshot: String,
 }
 
 impl EditorForm {
     /// A blank form for creating a new server.
     pub fn new_server() -> Self {
-        Self {
+        let mut form = Self {
             editing_id: None,
             name: String::new(),
             preset: Preset::Custom,
@@ -88,12 +90,15 @@ impl EditorForm {
             gradle_file_auto: String::new(),
             detected_gradle: None,
             detected_gradle_for: String::new(),
-        }
+            initial_snapshot: String::new(),
+        };
+        form.initial_snapshot = form.snapshot();
+        form
     }
 
     /// A form pre-filled from an existing server (its id is preserved on save).
     pub fn from_config(config: &ServerConfig) -> Self {
-        Self {
+        let mut form = Self {
             editing_id: Some(config.id.clone()),
             name: config.name.clone(),
             preset: config.preset,
@@ -121,7 +126,39 @@ impl EditorForm {
             gradle_file_auto: String::new(),
             detected_gradle: None,
             detected_gradle_for: String::new(),
-        }
+            initial_snapshot: String::new(),
+        };
+        form.initial_snapshot = form.snapshot();
+        form
+    }
+
+    fn snapshot(&self) -> String {
+        format!(
+            "{}\0{:?}\0{}\0{}\0{}\0{}\0{:?}\0{:?}\0{:?}",
+            self.name,
+            self.preset,
+            self.cwd,
+            self.command,
+            self.port,
+            self.env_file,
+            self.env
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>(),
+            self.shell,
+            self.gradle_file
+        )
+    }
+
+    /// Whether the user has entered anything that would be lost on dismissal.
+    pub fn is_dirty(&self) -> bool {
+        self.snapshot() != self.initial_snapshot
+    }
+
+    /// Show a dismissal warning without closing the form.
+    pub fn warn_unsaved(&mut self) {
+        self.error =
+            Some("입력한 변경 사항이 있습니다. Cancel을 눌러 버리거나 계속 편집하세요.".to_owned());
     }
 
     /// Overwrite command/port with a preset's defaults (invoked when the user
@@ -752,6 +789,7 @@ mod tests {
             gradle_file_auto: String::new(),
             detected_gradle: None,
             detected_gradle_for: String::new(),
+            initial_snapshot: String::new(),
         }
     }
 
@@ -814,6 +852,14 @@ mod tests {
         assert!(form("ok", "0").to_config().is_err()); // port 0
         assert!(form("ok", "").to_config().is_ok()); // empty port -> None, ok
         assert!(form("ok", "8080").to_config().is_ok());
+    }
+
+    #[test]
+    fn new_form_is_clean_until_user_edits() {
+        let mut f = EditorForm::new_server();
+        assert!(!f.is_dirty());
+        f.name.push_str("draft");
+        assert!(f.is_dirty());
     }
 
     #[test]

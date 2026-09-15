@@ -123,7 +123,32 @@ impl Workspace {
     /// to the root container, or wrapping a single root pane in a horizontal
     /// split. See [`Workspace::open_at`] for the shared rules.
     pub fn open_auto(&mut self, server_id: &str) -> Option<&'static str> {
-        self.open_at(None, server_id)
+        let before = self.open_ids().len();
+        let result = self.open_at(None, server_id);
+        if result.is_none() && self.open_ids().len() > before && self.open_ids().len() >= 3 {
+            self.reflow_to_grid();
+        }
+        result
+    }
+
+    /// Keep three and four automatically opened panes readable with an explicit
+    /// 2D tree. Drag placement still preserves a custom
+    /// tree; this only applies to the automatic sidebar/context-menu path.
+    fn reflow_to_grid(&mut self) {
+        let ids = self.open_ids();
+        if ids.len() < 3 {
+            return;
+        }
+        let mut tiles = egui_tiles::Tiles::default();
+        let panes: Vec<_> = ids.iter().map(|id| tiles.insert_pane(id.clone())).collect();
+        let top = tiles.insert_horizontal_tile(panes[..2].to_vec());
+        let root = if panes.len() == 3 {
+            tiles.insert_vertical_tile(vec![top, panes[2]])
+        } else {
+            let bottom = tiles.insert_horizontal_tile(panes[2..4].to_vec());
+            tiles.insert_vertical_tile(vec![top, bottom])
+        };
+        self.tree = Tree::new(Self::tree_id(self.id), root, tiles);
     }
 
     /// Open `server_id`'s log pane. `target` places it against an existing

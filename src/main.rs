@@ -741,7 +741,11 @@ impl eframe::App for CampfireApp {
                 let dismissed = response.should_close();
                 outcome = response.inner;
                 if dismissed && matches!(outcome, EditorOutcome::None) {
-                    outcome = EditorOutcome::Cancel;
+                    if form.is_dirty() {
+                        form.warn_unsaved();
+                    } else {
+                        outcome = EditorOutcome::Cancel;
+                    }
                 }
             }
             self.apply_editor_outcome(outcome);

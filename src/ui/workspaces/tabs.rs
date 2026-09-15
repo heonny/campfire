@@ -20,15 +20,10 @@ use eframe::egui;
 /// with each other when they are exactly the same size.
 const TAB_HEIGHT: f32 = 28.0;
 
-/// A tab holding a single log wears that server's name; only tabs bundling two
-/// or more (or empty ones) go by their workspace name.
+/// Workspace tabs always retain the user's name, including a single-pane tab.
+/// This prevents a custom name from unexpectedly changing as panes are opened.
 fn tab_title(ws: &Workspace, view: &View) -> String {
-    let open = ws.open_ids();
-    if let [only] = open.as_slice()
-        && let Some(server) = view.servers.iter().find(|s| s.id == *only)
-    {
-        return server.name.clone();
-    }
+    let _ = view;
     ws.name.clone()
 }
 
