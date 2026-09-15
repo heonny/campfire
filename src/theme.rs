@@ -1,15 +1,16 @@
-//! Light theme: the Pretendard font (Latin + Korean) plus a warm amber accent,
+//! Light theme: the Pretendard font (Latin + Korean) plus an ember accent on
+//! cool blue-grey surfaces,
 //! so the app reads as a clean dev tool rather than raw egui defaults.
 
 use eframe::egui;
 use egui::{Color32, CornerRadius, Margin, Stroke, Visuals, vec2};
 
-/// Campfire accent — a warm ember orange — and its pale selection tint.
-pub const ACCENT: Color32 = Color32::from_rgb(0xC2, 0x41, 0x0C);
-pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFB, 0xE3, 0xCC);
+/// Campfire accent — a bright ember orange — and its pale selection tint.
+pub const ACCENT: Color32 = Color32::from_rgb(0xEA, 0x58, 0x0C);
+pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFF, 0xE4, 0xCF);
 /// A whisper of the accent for a focused card's fill — calmer than
 /// `ACCENT_WEAK`, which is reserved for transient emphasis (drop previews).
-pub const ACCENT_TINT: Color32 = Color32::from_rgb(0xFD, 0xF3, 0xE9);
+pub const ACCENT_TINT: Color32 = Color32::from_rgb(0xFF, 0xF5, 0xEE);
 
 /// Toast surface: warm near-black chip with white text, floating bottom-center.
 pub const TOAST_FILL: Color32 = Color32::from_rgb(0x2B, 0x29, 0x26);
@@ -20,21 +21,21 @@ pub const TOAST_FILL: Color32 = Color32::from_rgb(0x2B, 0x29, 0x26);
 /// is tuned for foreground text and reads harsh as a button fill.
 pub const DANGER: Color32 = Color32::from_rgb(0xC0, 0x39, 0x2B);
 
-/// Card surface palette, tuned to the Claude Code app: a muted grey card on a
-/// near-white background, delineated by a hairline border. `INSET_FILL` is the
-/// recessed surface for code blocks.
-pub const CARD_FILL: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF2);
-pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE3, 0xE3, 0xE2);
-pub const INSET_FILL: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xE8);
+/// Surface palette: cool, airy blue-greys (a hint of blue instead of the
+/// older warm-grey "paper" look) — white cards lifted by a soft shadow on
+/// white blocks. `INSET_FILL` is the recessed surface for code blocks.
+pub const CARD_FILL: Color32 = Color32::WHITE;
+pub const CARD_BORDER: Color32 = Color32::from_rgb(0xE2, 0xE6, 0xEE);
+pub const INSET_FILL: Color32 = Color32::from_rgb(0xED, 0xF0, 0xF5);
 
 /// The soft grey a chromeless icon button fills with on hover. Reused as the
 /// follow toggle's "on" fill so an engaged toggle reads as the same pressed box
 /// a hover shows (see `icon_toggle_button`).
-pub const BUTTON_HOVER_FILL: Color32 = Color32::from_rgb(0xE1, 0xE1, 0xE0);
+pub const BUTTON_HOVER_FILL: Color32 = Color32::from_rgb(0xE6, 0xEA, 0xF1);
 
-/// The app canvas: a warm grey that the white section blocks float on.
+/// The app canvas: a cool light grey that the white section blocks float on.
 /// Sections separate by surface contrast, not divider lines.
-pub const CANVAS_FILL: Color32 = Color32::from_rgb(0xF0, 0xEF, 0xEB);
+pub const CANVAS_FILL: Color32 = Color32::from_rgb(0xF3, 0xF5, 0xF9);
 
 /// A panel frame that only paints the canvas: no chrome, just the grey fill
 /// and the given margin (the gap around the section blocks inside).
@@ -62,7 +63,7 @@ pub fn with_accent_resize_indicator<R>(
     result
 }
 
-/// A top-level section block (top bar, project list, detail header, log view):
+/// A top-level section block (project list, log pane, empty dock):
 /// white on the grey canvas, hairline border, one shared radius so every
 /// section reads as the same kind of rounded block.
 pub fn block_frame() -> egui::Frame {
@@ -99,17 +100,26 @@ pub fn modal_frame() -> egui::Frame {
         })
 }
 
-/// A base card frame: muted grey surface, hairline border, rounded, padded —
-/// delineated by fill + border, not elevation (no shadow, since the card sits
-/// darker than the background). Callers may override `.fill`/`.stroke` (e.g. for
-/// the selected/hover states).
+/// A base card frame: white, lifted off the block by a soft shadow plus a
+/// hairline, rounded, padded. Callers may override `.fill`/`.stroke` (e.g. for
+/// the focused state).
 pub fn card_frame() -> egui::Frame {
     egui::Frame::new()
-        .fill(CARD_FILL)
+        .fill(Color32::WHITE)
         .stroke(Stroke::new(1.0, CARD_BORDER))
         .corner_radius(CornerRadius::same(8))
         .inner_margin(Margin::symmetric(12, 10))
+        .shadow(CARD_SHADOW)
 }
+
+/// The card lift: a short, soft drop so a white card still separates from a
+/// white block without a heavier border.
+pub const CARD_SHADOW: egui::Shadow = egui::Shadow {
+    offset: [0, 1],
+    blur: 4,
+    spread: 0,
+    color: Color32::from_black_alpha(14),
+};
 
 /// Install fonts and visuals. Call once from the eframe creation closure.
 pub fn setup(ctx: &egui::Context) {
@@ -151,10 +161,10 @@ fn install_visuals(ctx: &egui::Context) {
 fn build_visuals() -> Visuals {
     let mut visuals = Visuals::light();
 
-    // App background — the warm grey canvas; white section blocks sit on top.
+    // App background — the cool grey canvas; white section blocks sit on top.
     visuals.panel_fill = CANVAS_FILL;
     visuals.window_fill = Color32::WHITE;
-    visuals.faint_bg_color = Color32::from_rgb(0xF2, 0xF1, 0xEE);
+    visuals.faint_bg_color = CARD_FILL;
     visuals.extreme_bg_color = Color32::WHITE;
 
     visuals.selection.bg_fill = ACCENT_WEAK;
@@ -174,9 +184,9 @@ fn build_visuals() -> Visuals {
     ] {
         widget.bg_stroke = Stroke::NONE;
     }
-    visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0xEA, 0xEA, 0xE9);
+    visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0xEC, 0xEF, 0xF4);
     visuals.widgets.hovered.weak_bg_fill = BUTTON_HOVER_FILL;
-    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0xD8, 0xD8, 0xD7);
+    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0xDC, 0xE1, 0xEA);
 
     // Separators and panel dividers: a soft hairline, not the default medium grey.
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, CARD_BORDER);

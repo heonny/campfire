@@ -17,8 +17,10 @@ pub fn start() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/play.svg"))
 }
 
+/// A filled square (our own glyph, not Lucide's outlined `square`): outlined,
+/// next to ⟳ and ×, it read as a window "maximize" control.
 pub fn stop() -> egui::Image<'static> {
-    sized(egui::include_image!("../../assets/icons/square.svg"))
+    sized(egui::include_image!("../../assets/icons/stop.svg"))
 }
 
 pub fn restart() -> egui::Image<'static> {
@@ -78,4 +80,9 @@ pub fn sidebar() -> egui::Image<'static> {
 /// Close a log pane or a workspace tab.
 pub fn close() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/x.svg"))
+}
+
+/// Toggle line wrapping in the log view.
+pub fn wrap() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/wrap-text.svg"))
 }

@@ -31,6 +31,9 @@ pub struct LogBuffer {
     lines: VecDeque<LogLine>,
     byte_len: usize,
     capacity: usize,
+    /// Lines pushed since the last clear — monotonic even as the ring drops
+    /// old lines, so a view can count "new since I last looked".
+    total_pushed: u64,
 }
 
 impl Default for LogBuffer {
@@ -46,6 +49,7 @@ impl LogBuffer {
             lines: VecDeque::new(),
             byte_len: 0,
             capacity,
+            total_pushed: 0,
         }
     }
 
@@ -55,12 +59,18 @@ impl LogBuffer {
     pub fn push(&mut self, stream: Stream, text: impl Into<String>) {
         let text = text.into();
         self.byte_len += text.len();
+        self.total_pushed += 1;
         self.lines.push_back(LogLine { stream, text });
         while self.byte_len > self.capacity && self.lines.len() > 1 {
             if let Some(dropped) = self.lines.pop_front() {
                 self.byte_len -= dropped.text.len();
             }
         }
+    }
+
+    /// Lines pushed since the last clear (not reduced when old lines drop).
+    pub fn total_pushed(&self) -> u64 {
+        self.total_pushed
     }
 
     /// Number of buffered lines.
@@ -93,6 +103,7 @@ impl LogBuffer {
     pub fn clear(&mut self) {
         self.lines.clear();
         self.byte_len = 0;
+        self.total_pushed = 0;
     }
 }
 

@@ -4,7 +4,10 @@
 //! (the dragged card floats to the cursor and the rest slide aside, animated); a
 //! left click selects, a right click opens the context menu.
 
-use super::{Action, SidebarDrag, View, icon_button, icons, status_dot, status_dot_fill};
+use super::{
+    Action, SidebarDrag, View, icon_button, icons, port_link, status_dot, status_dot_fill,
+    status_text,
+};
 use crate::model::ServerConfig;
 use crate::process::running::Status;
 use crate::theme;
@@ -46,9 +49,14 @@ pub fn show(
         })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
+            // Header: title + live count on the left; add / collapse / help on
+            // the right (the app has no top bar — the window title names it).
+            // Trailing items first (right-to-left), then the title takes the
+            // remainder and truncates — so a narrow sidebar elides the title
+            // instead of drawing the buttons over it.
             ui.horizontal(|ui| {
-                ui.heading("Projects");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
                     // Re-inset the button by the margin the frame no longer has.
                     ui.add_space(gutter);
                     if ui
@@ -58,6 +66,35 @@ pub fn show(
                     {
                         *action = Some(Action::OpenNew);
                     }
+                    // Collapse lives with the list it collapses (the rail has
+                    // the matching expand button).
+                    if ui
+                        .add(icon_button(icons::sidebar()))
+                        .on_hover_text("Hide sidebar (Cmd/Ctrl+B)")
+                        .clicked()
+                    {
+                        *action = Some(Action::ToggleSidebar);
+                    }
+                    if ui
+                        .add(icon_button(icons::help()))
+                        .on_hover_text("Help")
+                        .clicked()
+                    {
+                        *action = Some(Action::OpenHelp);
+                    }
+                    ui.add_space(4.0);
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        let count = format!("{}/{}", view.active, view.servers.len());
+                        let title =
+                            egui::Label::new(egui::RichText::new("Projects").heading()).truncate();
+                        ui.add(title);
+                        ui.add(egui::Label::new(egui::RichText::new(count).weak()).truncate())
+                            .on_hover_text(format!(
+                                "{} of {} running",
+                                view.active,
+                                view.servers.len()
+                            ));
+                    });
                 });
             });
             ui.add_space(8.0);
@@ -78,7 +115,7 @@ pub fn show(
                 })
                 .show(ui, |ui| {
                     if view.servers.is_empty() {
-                        ui.weak("등록된 프로젝트가 없습니다");
+                        ui.weak("No projects yet — press + to add one.");
                         return;
                     }
                     // egui_dnd renders each card, animates the reorder, and reports
@@ -138,11 +175,10 @@ fn render_card(
     };
     let dup = server.port.is_some_and(|p| view.dup_ports.contains(&p));
     let focused = view.focused == Some(server.id.as_str());
-    let open = view.open_logs.iter().any(|s| s == &server.id);
 
-    // Open/focused read through a slim accent bar on the card's left edge —
-    // focused additionally gets a whisper of tint — instead of loud accent
-    // borders. Borders stay the neutral hairline everywhere.
+    // The focused card reads through a whisper of accent tint alone — no
+    // stripes or accent borders; the hairline stays neutral everywhere. An
+    // open-but-unfocused pane is shown by its tab/pane, not marked here.
     let fill = if focused {
         theme::ACCENT_TINT
     } else {
@@ -166,22 +202,16 @@ fn render_card(
                             ui.colored_label(warn, "⚠").on_hover_text("duplicate port");
                         }
                         if let Some(port) = server.port {
-                            ui.weak(format!(":{port}"));
+                            port_link(ui, port);
                         }
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.add(egui::Label::new(&server.name).truncate());
                         });
                     });
                 });
-                metrics_row(ui, metrics);
+                metrics_row(ui, metrics, &status, &server.command);
             });
     });
-
-    // The open/focused marker: an accent stripe flush with the card's left
-    // edge, running the full height.
-    if open || focused {
-        paint_edge_stripe(ui.painter(), response.rect, theme::ACCENT);
-    }
 
     card_context_menu(&response, server, active, action);
     // A drag ends as a release, not a click, so this fires only on a genuine
@@ -193,48 +223,9 @@ fn render_card(
     ui.add_space(6.0);
 }
 
-/// Paint the open/focused marker: an accent stripe hugging the card's left
-/// edge for its full height. A plain rounded rect can't do this — epaint
-/// clamps a corner radius to half the shape's width, so a 4px-wide bar could
-/// never follow the card's 8px corner arc and would poke past the border. The
-/// stripe is instead the card's inner rounded outline clipped at `W`: its tips
-/// trace the exact same corner arcs as the card, so it sits flush inside it.
-fn paint_edge_stripe(painter: &egui::Painter, card: egui::Rect, color: egui::Color32) {
-    use std::f32::consts::PI;
-    // Inside the 1px hairline border; R matches card_frame's radius minus it.
-    const R: f32 = 7.0;
-    const W: f32 = 4.0;
-    const ARC_STEPS: usize = 8;
-    let rect = card.shrink(1.0);
-    // Where the stripe's straight right edge meets the corner arcs.
-    let dy = R - (R * R - (R - W) * (R - W)).sqrt();
-
-    let mut points = Vec::with_capacity(2 * (ARC_STEPS + 1) + 1);
-    points.push(egui::pos2(rect.left() + W, rect.top() + dy));
-    // Top-left arc: from that meeting point around to the flat left edge.
-    let center = egui::pos2(rect.left() + R, rect.top() + R);
-    let a0 = (dy - R).atan2(W - R);
-    for i in 1..=ARC_STEPS {
-        let a = a0 + (-PI - a0) * (i as f32 / ARC_STEPS as f32);
-        points.push(center + R * egui::vec2(a.cos(), a.sin()));
-    }
-    // Bottom-left arc, mirrored, back to the right edge (the polygon closes
-    // itself with the straight line up to the first point).
-    let center = egui::pos2(rect.left() + R, rect.bottom() - R);
-    let a1 = (R - dy).atan2(W - R);
-    for i in 0..=ARC_STEPS {
-        let a = PI + (a1 - PI) * (i as f32 / ARC_STEPS as f32);
-        points.push(center + R * egui::vec2(a.cos(), a.sin()));
-    }
-    painter.add(egui::Shape::convex_polygon(
-        points,
-        color,
-        egui::Stroke::NONE,
-    ));
-}
-
 /// The right-click menu: lifecycle actions (Start, or Stop/Restart while
-/// running), then management (Duplicate, Edit), then Delete — set apart and
+/// running), OS hand-offs (browser, folder, clipboard), then management
+/// (Open log, Duplicate, Edit), then Delete — set apart and
 /// error-colored, like the editor's Delete button, as the one destructive item.
 /// egui already styles context menus full-width and flat at rest, so the only
 /// styling here is roomier padding and a min width, with groups set apart by a
@@ -265,6 +256,21 @@ fn card_context_menu(
             }
         } else if ui.button("Start").clicked() {
             *action = Some(Action::Start(id.clone()));
+            ui.close();
+        }
+        ui.add_space(4.0);
+        if let Some(port) = server.port
+            && ui.button("Open in browser").clicked()
+        {
+            crate::system::open_url(&crate::system::localhost_url(port));
+            ui.close();
+        }
+        if ui.button("Reveal working dir").clicked() {
+            crate::system::reveal_dir(&server.cwd);
+            ui.close();
+        }
+        if ui.button("Copy command").clicked() {
+            ui.ctx().copy_text(server.command.clone());
             ui.close();
         }
         ui.add_space(4.0);
@@ -336,24 +342,23 @@ fn rail_dot(ui: &mut egui::Ui, status: &Status, selected: bool) -> egui::Respons
     response
 }
 
-/// CPU/memory under the name while running. The row's space is reserved even
-/// when idle so card heights don't change as servers start and stop.
-fn metrics_row(ui: &mut egui::Ui, metrics: Option<(f32, u64)>) {
+/// The card's second line: CPU/memory while running, the exit code after a
+/// crash, otherwise the command — so the row is never blank and card heights
+/// stay put as servers start and stop.
+fn metrics_row(ui: &mut egui::Ui, metrics: Option<(f32, u64)>, status: &Status, command: &str) {
     ui.horizontal(|ui| {
         ui.add_space(20.0); // status dot (12) + item gap (8): align with the name
-        match metrics {
-            Some((cpu, mem)) => {
+        let text = match (metrics, status) {
+            (Some((cpu, mem)), _) => {
                 let mem_mb = mem as f64 / 1_048_576.0;
-                ui.label(
-                    egui::RichText::new(format!("CPU {cpu:.0}% · {mem_mb:.0} MB"))
-                        .small()
-                        .weak(),
-                );
+                egui::RichText::new(format!("CPU {cpu:.0}% · {mem_mb:.0} MB")).weak()
             }
-            None => {
-                let height = ui.text_style_height(&egui::TextStyle::Small);
-                ui.allocate_exact_size(egui::vec2(1.0, height), egui::Sense::hover());
+            (None, Status::Crashed { .. }) => {
+                egui::RichText::new(status_text(status)).color(ui.visuals().error_fg_color)
             }
-        }
+            // The command is information, not decoration: small but not weak.
+            (None, _) => egui::RichText::new(command).small(),
+        };
+        ui.add(egui::Label::new(text.small()).truncate());
     });
 }

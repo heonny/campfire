@@ -27,6 +27,7 @@ pub(super) fn render_body(
     find: Option<&Matcher>,
     active: Option<&FindMatch>,
     follow: bool,
+    wrap: bool,
     scroll_to: Option<ScrollTo>,
 ) {
     // Tight line spacing for a terminal-like density (the app default is roomier).
@@ -51,9 +52,14 @@ pub(super) fn render_body(
         Some(ScrollTo::Match(row)) => (None, false, Some(row)),
         None => (None, follow, None),
     };
-    let mut area = egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .id_salt(salt);
+    // Wrapped lines only scroll vertically; extended lines add a sideways axis.
+    let mut area = if wrap {
+        egui::ScrollArea::vertical()
+    } else {
+        egui::ScrollArea::both()
+    }
+    .auto_shrink([false, false])
+    .id_salt(salt);
     area = match offset {
         Some(y) => area.vertical_scroll_offset(y),
         None => area.stick_to_bottom(stick),
@@ -68,7 +74,7 @@ pub(super) fn render_body(
                 continue;
             };
             let (ranges, active_local) = highlights(find, active, row, &line.text);
-            let resp = render_line(ui, &line.text, &font, base, &ranges, active_local);
+            let resp = render_line(ui, &line.text, &font, base, &ranges, active_local, wrap);
             if Some(row) == match_row {
                 resp.scroll_to_me(Some(egui::Align::Center));
             }
@@ -95,7 +101,7 @@ fn highlights(
     (ranges, active_local)
 }
 
-/// Render one log line as a wrapping, selectable label; returns its response so
+/// Render one log line as a selectable label (wrapped or extended); returns its response so
 /// the caller can scroll a find match into view.
 fn render_line(
     ui: &mut egui::Ui,
@@ -104,11 +110,14 @@ fn render_line(
     base: egui::Color32,
     ranges: &[Range<usize>],
     active: Option<usize>,
+    wrap: bool,
 ) -> egui::Response {
     let job = crate::ansi::to_job(text, font.clone(), base, ranges, active);
-    // Default wrap (egui wraps text in a vertical layout): a long line folds onto
-    // the next visual row rather than running off the right edge.
-    ui.add(egui::Label::new(job).selectable(true))
+    // Wrap (egui's default in a vertical layout) folds a long line onto the next
+    // visual row; extend keeps it on one row under the horizontal scroll.
+    let label = egui::Label::new(job).selectable(true);
+    let label = if wrap { label.wrap() } else { label.extend() };
+    ui.add(label)
 }
 
 #[cfg(test)]

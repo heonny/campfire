@@ -57,6 +57,11 @@ pub struct LogView {
     grep_word: bool,
     grep_regex: bool,
     follow: bool,
+    /// Wrap long lines (default) or extend them under a horizontal scroll.
+    wrap: bool,
+    /// `LogBuffer::total_pushed` as of the last moment the view was tailing;
+    /// the difference is the "N new lines" badge while follow is off.
+    seen_total: u64,
     scroll_to: Option<ScrollTo>,
     cache: Cache,
 }
@@ -75,6 +80,8 @@ impl Default for LogView {
             grep_word: false,
             grep_regex: false,
             follow: true,
+            wrap: true,
+            seen_total: 0,
             scroll_to: None,
             cache: Cache::default(),
         }
@@ -117,6 +124,10 @@ impl Displayed<'_> {
 #[derive(Default)]
 struct Events {
     clear: bool,
+    /// The "N new lines" badge: jump to the bottom and resume following.
+    catch_up: bool,
+    /// The bottom bar's search button: same effect as Cmd/Ctrl+F.
+    toggle_search: bool,
     nav: i32, // -1 previous match, +1 next match, 0 none
 }
 
@@ -147,14 +158,45 @@ pub fn show(
     state: &mut LogView,
     logs: &LogBuffer,
 ) -> bool {
-    // Cmd/Ctrl+F toggles the find/grep box (focusing it on open); Escape closes it.
-    let open_key = has_focus
-        && ui.input_mut(|i| {
-            i.consume_shortcut(&egui::KeyboardShortcut::new(
-                egui::Modifiers::COMMAND,
-                egui::Key::F,
-            ))
-        });
+    // Following means everything so far has been seen; a cleared buffer resets
+    // the counter below the mark.
+    let total = logs.total_pushed();
+    if state.follow || state.seen_total > total {
+        state.seen_total = total;
+    }
+    let unseen = total - state.seen_total;
+
+    let mut events = Events::default();
+
+    // Viewport controls (search / follow / clear / scroll) live in a bar pinned
+    // to the bottom edge, shown whether or not the search box is open. Rendered
+    // first so it reserves its space (and so its search button can feed the
+    // open/close decision below); the body then fills whatever remains above it.
+    egui::Panel::bottom(salt.with("log_controls"))
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(egui::Frame::new().inner_margin(egui::Margin {
+            left: 0,
+            right: 0,
+            top: 6,
+            bottom: 0,
+        }))
+        .show(ui, |ui| bottom_bar(ui, state, unseen, &mut events));
+    if events.catch_up {
+        state.follow = true;
+        state.scroll_to = Some(ScrollTo::Bottom);
+    }
+
+    // Cmd/Ctrl+F (or the bar's search button) toggles the find/grep box,
+    // focusing it on open; Escape closes it.
+    let open_key = events.toggle_search
+        || (has_focus
+            && ui.input_mut(|i| {
+                i.consume_shortcut(&egui::KeyboardShortcut::new(
+                    egui::Modifiers::COMMAND,
+                    egui::Key::F,
+                ))
+            }));
     // Escape is read but deliberately *not* consumed (unlike the shortcut above):
     // the editor/help modals render after this panel and close on the same key,
     // so swallowing it here would trap them open. A stray double-handle (closing
@@ -174,22 +216,6 @@ pub fn show(
             state.active.min(total - 1)
         };
     }
-
-    let mut events = Events::default();
-
-    // Viewport controls (follow / clear / scroll) live in a bar pinned to the
-    // bottom edge, shown whether or not the search box is open. Rendered first so
-    // it reserves its space; the body then fills whatever remains above it.
-    egui::Panel::bottom(salt.with("log_controls"))
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(egui::Frame::new().inner_margin(egui::Margin {
-            left: 0,
-            right: 0,
-            top: 6,
-            bottom: 0,
-        }))
-        .show(ui, |ui| bottom_bar(ui, state, &mut events));
 
     // The find/grep rows (when open) sit above the lines; both render into the
     // space the bottom bar left.
@@ -216,6 +242,7 @@ pub fn show(
     // box is closed the search is inactive: no highlight matcher, no filter.
     let scroll_to = state.scroll_to.take();
     let follow = state.follow;
+    let wrap = state.wrap;
     let (displayed, find, active) = if state.search_open {
         let displayed = match state.cache.filter.as_deref() {
             Some(rows) => Displayed::Filtered(rows),
@@ -229,7 +256,9 @@ pub fn show(
     } else {
         (Displayed::All(logs.len()), None, None)
     };
-    render_body(ui, salt, logs, &displayed, find, active, follow, scroll_to);
+    render_body(
+        ui, salt, logs, &displayed, find, active, follow, wrap, scroll_to,
+    );
     events.clear
 }
 

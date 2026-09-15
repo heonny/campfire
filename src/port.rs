@@ -3,13 +3,28 @@
 
 use crate::model::ServerConfig;
 use std::collections::{BTreeSet, HashMap};
-use std::net::TcpListener;
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::time::Duration;
 
 /// Whether `port` can be bound on localhost right now. A successful bind (which
 /// is immediately released) means free; `AddrInUse` means something is already
 /// listening. This is a point-in-time check, not a reservation.
 pub fn is_port_free(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+/// Whether something accepts connections on `port` at localhost — IPv4 or
+/// IPv6, since Node and the JVM often bind only `::` / `*`, which a
+/// 127.0.0.1 bind probe can miss. A refused connection returns at once; the
+/// timeout only bounds a black-holed one.
+pub fn is_listening(port: u16) -> bool {
+    let timeout = Duration::from_millis(100);
+    [
+        SocketAddr::from(([127, 0, 0, 1], port)),
+        SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port)),
+    ]
+    .iter()
+    .any(|addr| TcpStream::connect_timeout(addr, timeout).is_ok())
 }
 
 /// Ports assigned to more than one server in `servers` — a config-level clash

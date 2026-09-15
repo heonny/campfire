@@ -25,8 +25,11 @@ install.
   (graceful `SIGINT`, a grace period, then `SIGKILL`), so nothing is orphaned;
   press Stop again to force-quit immediately
 - **Reorder** — drag project cards up or down to change their order; it's saved
-- **Live logs** — ANSI colors rendered, plus search, follow (tail), and clear,
-  over a bounded 5 MiB ring buffer
+- **Live logs** — ANSI colors rendered, plus search, follow (tail), wrap
+  toggle, an unseen-lines badge, and clear, over a bounded 5 MiB ring buffer
+- **Ready / crash notices** — a server shows *starting* until its port is
+  listening, then a toast says it's ready; a crash toasts the exit code
+- **Open in browser** — click a project's `:port` to open `localhost:port`
 - **Port awareness** — warns when a port is already in use or assigned to two
   servers; injects both `PORT` and `SERVER_PORT`
 - **Resource usage** — per-server CPU and memory shown live on each project

@@ -57,40 +57,27 @@ pub struct SidebarDrag {
 
 /// Read-only view of the app state that the panels render from.
 pub struct View<'a> {
+    /// How many servers are live (non-terminal), for the sidebar's count.
+    pub active: usize,
     pub servers: &'a [ServerConfig],
     pub running: &'a HashMap<String, RunningProcess>,
     pub dup_ports: &'a BTreeSet<u16>,
     /// The ACTIVE workspace's focused pane, for the sidebar highlight.
     pub focused: Option<&'a str>,
-    /// Server ids open in the ACTIVE workspace, for the sidebar's open marker.
-    pub open_logs: &'a [String],
     pub metrics: &'a Metrics,
 }
 
-/// Status indicator color: green running / amber starting / red crashed / gray
-/// stopped.
-pub fn status_color(status: &Status) -> egui::Color32 {
-    match status {
-        Status::Running => egui::Color32::from_rgb(0x2E, 0x7D, 0x32),
-        Status::Starting => egui::Color32::from_rgb(0xC2, 0x88, 0x1F),
-        Status::Crashed { .. } => egui::Color32::from_rgb(0xC0, 0x39, 0x2B),
-        Status::Stopped => egui::Color32::from_rgb(0x6E, 0x6E, 0x6E),
-    }
-}
-
-/// Fill for the status **dot**. A dot is a tiny filled circle with no text to
-/// read, so it wants a vivid, bright color; `status_color` is instead tuned for
-/// badge-text legibility on white (WCAG AA), which forces dark, muted hues that
-/// read as grey at dot size and even sit *darker* than the stopped grey.
-/// Running and Crashed diverge here — a brighter, more saturated green / red
-/// (both lighter than the stopped grey, so red-green color-blind users get a
-/// brightness cue) make a live or crashed server unmistakable next to a stopped
-/// one; Starting and Stopped reuse `status_color`.
+/// Fill for the status dot: vivid green running / amber starting or stopping
+/// / red crashed / light cool grey stopped. Running and crashed are both
+/// lighter than the stopped grey, so red-green color-blind users still get a
+/// brightness cue.
 pub(crate) fn status_dot_fill(status: &Status) -> egui::Color32 {
     match status {
         Status::Running => egui::Color32::from_rgb(0x22, 0xC5, 0x5E),
+        Status::Starting | Status::Stopping => egui::Color32::from_rgb(0xF5, 0x9E, 0x0B),
         Status::Crashed { .. } => egui::Color32::from_rgb(0xEF, 0x44, 0x44),
-        other => status_color(other),
+        // A light cool grey: quiet, and clearly "off" next to the vivid states.
+        Status::Stopped => egui::Color32::from_rgb(0xB4, 0xBB, 0xC7),
     }
 }
 
@@ -106,8 +93,9 @@ pub fn status_dot(ui: &mut egui::Ui, status: &Status) -> egui::Response {
 pub fn status_text(status: &Status) -> String {
     match status {
         Status::Stopped => "stopped".to_string(),
-        Status::Starting => "starting".to_string(),
+        Status::Starting => "starting (waiting for the port)".to_string(),
         Status::Running => "running".to_string(),
+        Status::Stopping => "stopping (press Stop again to force-quit)".to_string(),
         Status::Crashed { code: Some(code) } => format!("crashed (exit {code})"),
         Status::Crashed { code: None } => "crashed".to_string(),
     }
@@ -117,11 +105,41 @@ pub fn status_text(status: &Status) -> String {
 // stays consistent. Borderlessness and the hover fill ramp come from the theme
 // (interactive `bg_stroke` is zeroed there); these just pick the content shape.
 
+/// Padding around an icon glyph: equal on all sides so the hover box is a
+/// square hugging the icon, instead of the wide pill the text-button padding
+/// would make (10×5 around a 15px glyph reads as 35×25).
+const ICON_PADDING: f32 = 5.0;
+
+/// An icon-only button, rendered inside a scope with square [`ICON_PADDING`].
+/// Wraps [`egui::Button`] so it still goes through `ui.add` / `ui.add_enabled`.
+pub struct IconButton<'a> {
+    button: egui::Button<'a>,
+}
+
+impl<'a> IconButton<'a> {
+    pub fn min_size(mut self, size: egui::Vec2) -> Self {
+        self.button = self.button.min_size(size);
+        self
+    }
+}
+
+impl egui::Widget for IconButton<'_> {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        ui.scope(|ui| {
+            ui.spacing_mut().button_padding = egui::Vec2::splat(ICON_PADDING);
+            ui.add(self.button)
+        })
+        .inner
+    }
+}
+
 /// An icon-only button: no chrome at rest — just the glyph — with the hover
 /// fill appearing on interaction. `frame_when_inactive(false)` keeps the same
 /// inner margin in every state, so the layout doesn't shift on hover.
-pub fn icon_button<'a>(icon: egui::Image<'a>) -> egui::Button<'a> {
-    egui::Button::image(icon).frame_when_inactive(false)
+pub fn icon_button<'a>(icon: egui::Image<'a>) -> IconButton<'a> {
+    IconButton {
+        button: egui::Button::image(icon).frame_when_inactive(false),
+    }
 }
 
 /// An icon button that stays visibly "pressed" — a soft grey box — while `on`,
@@ -129,15 +147,16 @@ pub fn icon_button<'a>(icon: egui::Image<'a>) -> egui::Button<'a> {
 /// [`icon_button`]); when on, the same hover fill is shown at rest so the active
 /// state reads without color. `selected(on)` also announces on/off to assistive
 /// tech. The caller flips the bound flag when the button is clicked.
-pub fn icon_toggle_button<'a>(icon: egui::Image<'a>, on: bool) -> egui::Button<'a> {
+pub fn icon_toggle_button<'a>(icon: egui::Image<'a>, on: bool) -> IconButton<'a> {
     let button = egui::Button::image(icon)
         .selected(on)
         .frame_when_inactive(on);
-    if on {
+    let button = if on {
         button.fill(crate::theme::BUTTON_HOVER_FILL)
     } else {
         button
-    }
+    };
+    IconButton { button }
 }
 
 /// A text-only button.
@@ -151,24 +170,53 @@ pub fn primary_button(label: &str) -> egui::Button<'_> {
         .fill(crate::theme::ACCENT)
 }
 
+/// A weak `:port` label that opens `http://localhost:port` in the browser on
+/// click — the most common thing to do with a local dev server's port.
+pub fn port_link(ui: &mut egui::Ui, port: u16) -> egui::Response {
+    let url = crate::system::localhost_url(port);
+    let response = ui
+        .add(
+            egui::Label::new(egui::RichText::new(format!(":{port}")).weak())
+                .sense(egui::Sense::click()),
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(format!("Open {url}"));
+    if response.clicked() {
+        crate::system::open_url(&url);
+    }
+    response
+}
+
 /// A single-line text input drawn as a bordered, padded box. Fields are
 /// otherwise borderless (the theme zeroes widget outlines for the flat buttons),
 /// so the box is a wrapping [`egui::Frame`]; the inner [`egui::TextEdit`] is
 /// frameless and transparent. Returns the edit response.
 pub fn text_input(ui: &mut egui::Ui, text: &mut String, hint: &str, width: f32) -> egui::Response {
+    text_input_frame(false)
+        .show(ui, |ui| ui.add(frameless_edit(text, hint, width)))
+        .inner
+}
+
+/// The bordered box every text field sits in. `error` swaps the hairline for
+/// the danger red (an invalid regex, a bad port).
+pub fn text_input_frame(error: bool) -> egui::Frame {
+    let stroke = if error {
+        crate::theme::DANGER
+    } else {
+        crate::theme::CARD_BORDER
+    };
     egui::Frame::new()
         .fill(egui::Color32::WHITE)
-        .stroke(egui::Stroke::new(1.0, crate::theme::CARD_BORDER))
+        .stroke(egui::Stroke::new(1.0, stroke))
         .corner_radius(egui::CornerRadius::same(6))
         .inner_margin(egui::Margin::symmetric(8, 5))
-        .show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::singleline(text)
-                    .frame(egui::Frame::NONE)
-                    .background_color(egui::Color32::TRANSPARENT)
-                    .hint_text(hint)
-                    .desired_width(width),
-            )
-        })
-        .inner
+}
+
+/// The transparent single-line editor that goes inside [`text_input_frame`].
+pub fn frameless_edit<'a>(text: &'a mut String, hint: &str, width: f32) -> egui::TextEdit<'a> {
+    egui::TextEdit::singleline(text)
+        .frame(egui::Frame::NONE)
+        .background_color(egui::Color32::TRANSPARENT)
+        .hint_text(hint)
+        .desired_width(width)
 }

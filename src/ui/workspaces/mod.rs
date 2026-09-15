@@ -131,11 +131,7 @@ impl Workspace {
     /// → just focus (one pane per server per workspace). Returns a user-facing
     /// notice when the workspace is full. Module-internal: external callers go
     /// through [`Workspace::open_auto`] or the dock's drop handling.
-    fn open_at(
-        &mut self,
-        target: Option<(TileId, Zone)>,
-        server_id: &str,
-    ) -> Option<&'static str> {
+    fn open_at(&mut self, target: Option<(TileId, Zone)>, server_id: &str) -> Option<&'static str> {
         if self.is_open(server_id) {
             self.focused = Some(server_id.to_owned());
             return None;
@@ -161,7 +157,8 @@ impl Workspace {
                 if matches!(self.tree.tiles.get(root), Some(Tile::Container(_))) {
                     // Append at the end of the existing root container
                     // (move_tile_to_container clamps the index).
-                    self.tree.move_tile_to_container(pane, root, usize::MAX, false);
+                    self.tree
+                        .move_tile_to_container(pane, root, usize::MAX, false);
                 } else {
                     // Root is a single pane: wrap both in a horizontal split.
                     let wrap = self.tree.tiles.insert_horizontal_tile(vec![root, pane]);
@@ -241,10 +238,6 @@ pub struct Workspaces {
     next_id: u64,
     /// In-progress tab rename: (workspace index, edit buffer).
     renaming: Option<(usize, String)>,
-    /// A lone empty workspace normally shows no tab (just the +); pressing +
-    /// in that state reveals it instead of stacking a second one. Cleared
-    /// whenever content names the tab or the state resets.
-    solo_revealed: bool,
 }
 
 impl Workspaces {
@@ -254,24 +247,14 @@ impl Workspaces {
             active: 0,
             next_id: 2,
             renaming: None,
-            solo_revealed: false,
         }
     }
 
-    /// Whether the strip should show no tab at all: a single empty workspace
-    /// that hasn't been explicitly revealed with +.
+    /// Whether the strip shows nothing at all: a single empty workspace. A
+    /// lone + floating over the empty dock read as an orphan, and there is
+    /// nothing to add a second workspace *for* until the first holds a log.
     fn solo_hidden(&self) -> bool {
-        !self.solo_revealed && self.list.len() == 1 && self.list[0].open_ids().is_empty()
-    }
-
-    /// The + button: from the hidden lone-empty state it reveals the existing
-    /// workspace (so exactly ONE tab appears, not two); otherwise it adds one.
-    fn add_or_reveal(&mut self) {
-        if self.solo_hidden() {
-            self.solo_revealed = true;
-        } else {
-            self.add();
-        }
+        self.list.len() == 1 && self.list[0].open_ids().is_empty()
     }
 
     // `active < list.len()` is maintained by every mutator (add/close/from_doc)
@@ -293,7 +276,8 @@ impl Workspaces {
         }
         let id = self.next_id;
         self.next_id += 1;
-        self.list.push(Workspace::new(id, format!("Workspace {id}")));
+        self.list
+            .push(Workspace::new(id, format!("Workspace {id}")));
         self.active = self.list.len() - 1;
     }
 
@@ -327,10 +311,9 @@ impl Workspaces {
         let mut close_active = false;
         ctx.input_mut(|input| {
             for (index, key) in KEYS.iter().enumerate() {
-                if input.consume_shortcut(&egui::KeyboardShortcut::new(
-                    egui::Modifiers::COMMAND,
-                    *key,
-                )) {
+                if input
+                    .consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, *key))
+                {
                     switch = Some(index);
                 }
             }
@@ -356,11 +339,11 @@ impl Workspaces {
             return;
         }
         self.list.remove(index);
-        self.solo_revealed = false; // a re-emptied strip goes back to just +
         if self.list.is_empty() {
             let id = self.next_id;
             self.next_id += 1;
-            self.list.push(Workspace::new(id, format!("Workspace {id}")));
+            self.list
+                .push(Workspace::new(id, format!("Workspace {id}")));
             self.active = 0;
             return;
         }
@@ -483,7 +466,10 @@ mod tests {
         w.open_auto("a");
         w.views.insert("a".to_owned(), LogView::default());
         w.show_log("b");
-        assert!(!w.views.contains_key("a"), "replaced pane's view state dropped");
+        assert!(
+            !w.views.contains_key("a"),
+            "replaced pane's view state dropped"
+        );
     }
 
     #[test]
@@ -537,15 +523,12 @@ mod tests {
     }
 
     #[test]
-    fn plus_reveals_the_lone_empty_workspace_before_adding() {
+    fn a_lone_empty_workspace_hides_the_strip() {
         let mut wss = Workspaces::new();
-        assert!(wss.solo_hidden(), "fresh state shows only the +");
-        wss.add_or_reveal();
-        assert_eq!(wss.list.len(), 1, "first + reveals, not adds");
+        assert!(wss.solo_hidden(), "fresh state shows no strip");
+        wss.add();
         assert!(!wss.solo_hidden());
-        wss.add_or_reveal();
-        assert_eq!(wss.list.len(), 2, "second + adds normally");
-        // Closing back down to a lone empty workspace re-hides the tab.
+        // Closing back down to a lone empty workspace hides it again.
         wss.close(1);
         wss.close(0);
         assert!(wss.solo_hidden());

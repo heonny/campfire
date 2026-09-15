@@ -4,7 +4,7 @@
 //! parses and validates them into a [`ServerConfig`], and [`show`] renders the
 //! form and reports what the user did via [`EditorOutcome`].
 
-use super::{primary_button, text_button, text_input};
+use super::{primary_button, text_button, text_input, text_input_frame};
 use crate::gradle::{self, GradleProject};
 use crate::model::{EnvVar, Preset, ServerConfig};
 use crate::project::{NodeProject, detect_node_project};
@@ -41,6 +41,13 @@ pub struct EditorForm {
     /// The `cwd` value detection last ran for, so `package.json` is re-read only
     /// when the path actually changes — not on every frame.
     detected_for: String,
+    /// Whether `cwd` names an existing directory (refreshed with detection), for
+    /// the inline hint — a typo is otherwise only caught at launch.
+    cwd_exists: bool,
+    /// The port text last probed, and whether something was listening on it.
+    /// Probed on change only (a bind per frame would be wasteful).
+    port_checked: String,
+    port_in_use: bool,
     /// Path to the Gradle build script feeding the Tasks picker (Spring Boot
     /// preset only). Auto-located under `cwd`, but user-overridable to point at a
     /// specific `build.gradle`. Transient UI state — never persisted.
@@ -73,6 +80,9 @@ impl EditorForm {
             error: None,
             detected: None,
             detected_for: String::new(),
+            cwd_exists: true,
+            port_checked: String::new(),
+            port_in_use: false,
             gradle_file: String::new(),
             gradle_file_auto: String::new(),
             detected_gradle: None,
@@ -103,6 +113,9 @@ impl EditorForm {
             error: None,
             detected: None,
             detected_for: String::new(),
+            cwd_exists: true,
+            port_checked: String::new(),
+            port_in_use: false,
             gradle_file: String::new(),
             gradle_file_auto: String::new(),
             detected_gradle: None,
@@ -137,6 +150,7 @@ impl EditorForm {
             return;
         }
         let cwd = self.cwd.trim().to_string();
+        self.cwd_exists = cwd.is_empty() || Path::new(&cwd).is_dir();
         self.detected = if cwd.is_empty() {
             None
         } else {
@@ -171,6 +185,49 @@ impl EditorForm {
         self.detected_gradle_for = file;
     }
 
+    /// Re-probe the port when its text changed. Only a well-formed port is
+    /// probed; a malformed one reads as "not in use" (the parse hint covers it).
+    // ponytail: probes 127.0.0.1 only, like the ready probe in running.rs.
+    fn refresh_port(&mut self) {
+        if self.port == self.port_checked {
+            return;
+        }
+        self.port_checked = self.port.clone();
+        self.port_in_use = self
+            .port
+            .trim()
+            .parse::<u16>()
+            .is_ok_and(|p| p != 0 && !crate::port::is_port_free(p));
+    }
+
+    /// The inline port hint as `(text, is_error)`: a parse problem, else who
+    /// else has this port — another server's config, or something already
+    /// listening (unless that is this very server, expected while it runs).
+    fn port_hint(&self, servers: &[ServerConfig], self_running: bool) -> Option<(String, bool)> {
+        let text = self.port.trim();
+        if text.is_empty() {
+            return None;
+        }
+        let port = match text.parse::<u16>() {
+            Ok(p) if p != 0 => p,
+            _ => return Some(("must be 1–65535".to_owned(), true)),
+        };
+        let other = servers
+            .iter()
+            .find(|s| s.port == Some(port) && Some(s.id.as_str()) != self.editing_id.as_deref());
+        if let Some(other) = other {
+            return Some((format!("also used by '{}'", other.name), false));
+        }
+        if self.port_in_use && !self_running {
+            return Some(("already in use on this machine".to_owned(), false));
+        }
+        None
+    }
+
+    pub fn editing_id(&self) -> Option<&str> {
+        self.editing_id.as_deref()
+    }
+
     /// Directory to open the Gradle-file browser in: the current file's folder
     /// when set, otherwise the working directory.
     fn gradle_dialog_dir(&self) -> Option<PathBuf> {
@@ -199,6 +256,9 @@ impl EditorForm {
         let cwd = self.cwd.trim();
         if cwd.is_empty() {
             return Err("Working directory is required.".to_string());
+        }
+        if !Path::new(cwd).is_dir() {
+            return Err(format!("Working directory '{cwd}' doesn't exist."));
         }
         let port = match self.port.trim() {
             "" => None,
@@ -285,12 +345,12 @@ fn section_label(ui: &mut egui::Ui, text: &str) {
 }
 
 /// A [`text_input`] sized to fill the available width — for dialog fields that
-/// should track the modal width instead of a fixed size. Kept local to the
-/// editor so it doesn't depend on the shared toolbar helpers (reworked in
-/// parallel). Subtracts the frame's horizontal margin so the bordered box, not
-/// just the text, fills the row.
+/// should track the modal width instead of a fixed size. Subtracts the frame's
+/// total margin (padding plus stroke) so the bordered box, not just the text,
+/// fills the row exactly.
 fn fill_input(ui: &mut egui::Ui, text: &mut String, hint: &str) -> egui::Response {
-    let width = (ui.available_width() - 16.0).max(40.0);
+    let chrome = text_input_frame(false).total_margin().sum().x;
+    let width = (ui.available_width() - chrome).max(40.0);
     text_input(ui, text, hint, width)
 }
 
@@ -316,9 +376,22 @@ fn path_field(ui: &mut egui::Ui, value: &mut String, hint: &str) -> (bool, bool)
     .inner
 }
 
-/// Render the form and report the user's action.
-pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
+/// Render the form and report the user's action. `servers` feeds the
+/// duplicate-port hint; `self_running` says the server being edited is live
+/// (so its own port being taken is expected). Cmd/Ctrl+Enter saves.
+pub fn show(
+    ui: &mut egui::Ui,
+    form: &mut EditorForm,
+    servers: &[ServerConfig],
+    self_running: bool,
+) -> EditorOutcome {
     let mut outcome = EditorOutcome::None;
+    let save_key = ui.input_mut(|i| {
+        i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::COMMAND,
+            egui::Key::Enter,
+        ))
+    });
     // Fix the dialog width so long paths / detected plugin lists fill the fields
     // and wrap, instead of stretching the modal off-screen.
     let width = 520.0;
@@ -381,6 +454,11 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
                     // This still fires on open, after Browse, and when the field blurs.
                     if !cwd_focused {
                         form.refresh_detection();
+                    }
+                    if !form.cwd_exists {
+                        ui.label("");
+                        ui.colored_label(ui.visuals().error_fg_color, "directory not found");
+                        ui.end_row();
                     }
 
                     // Gradle (Spring Boot preset): point at a build file — auto-located
@@ -527,7 +605,18 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
                     ui.end_row();
 
                     ui.label("Port");
-                    text_input(ui, &mut form.port, "3000", 100.0);
+                    ui.horizontal(|ui| {
+                        text_input(ui, &mut form.port, "3000", 100.0);
+                        form.refresh_port();
+                        if let Some((hint, is_error)) = form.port_hint(servers, self_running) {
+                            let color = if is_error {
+                                ui.visuals().error_fg_color
+                            } else {
+                                ui.visuals().warn_fg_color
+                            };
+                            ui.colored_label(color, hint);
+                        }
+                    });
                     ui.end_row();
 
                     ui.label(".env file");
@@ -594,7 +683,7 @@ pub fn show(ui: &mut egui::Ui, form: &mut EditorForm) -> EditorOutcome {
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add(primary_button("Save")).clicked() {
+            if ui.add(primary_button("Save")).clicked() || save_key {
                 match form.to_config() {
                     Ok(config) => outcome = EditorOutcome::Save(config),
                     Err(message) => form.error = Some(message),
@@ -618,7 +707,7 @@ mod tests {
             editing_id: None,
             name: name.to_string(),
             preset: Preset::Custom,
-            cwd: "/tmp".to_string(),
+            cwd: std::env::temp_dir().to_string_lossy().into_owned(),
             command: "run".to_string(),
             port: port.to_string(),
             env_file: String::new(),
@@ -627,11 +716,35 @@ mod tests {
             error: None,
             detected: None,
             detected_for: String::new(),
+            cwd_exists: true,
+            port_checked: String::new(),
+            port_in_use: false,
             gradle_file: String::new(),
             gradle_file_auto: String::new(),
             detected_gradle: None,
             detected_gradle_for: String::new(),
         }
+    }
+
+    #[test]
+    fn to_config_rejects_a_missing_working_dir() {
+        let mut f = form("ok", "");
+        f.cwd = std::env::temp_dir()
+            .join("campfire-no-such-dir")
+            .to_string_lossy()
+            .into_owned();
+        assert!(f.to_config().is_err());
+    }
+
+    #[test]
+    fn port_hint_flags_parse_errors_and_config_duplicates() {
+        let servers = [ServerConfig::from_preset("api", "/srv/api", Preset::NextJs)]; // :3000
+        assert!(form("a", "").port_hint(&servers, false).is_none());
+        assert!(form("a", "abc").port_hint(&servers, false).unwrap().1);
+        let (hint, is_error) = form("a", "3000").port_hint(&servers, false).unwrap();
+        assert!(hint.contains("api"), "got: {hint}");
+        assert!(!is_error);
+        assert!(form("a", "3001").port_hint(&servers, false).is_none());
     }
 
     #[test]

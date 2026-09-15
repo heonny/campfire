@@ -58,10 +58,21 @@ pub fn show(ui: &mut egui::Ui) -> bool {
             section(
                 ui,
                 "Logs",
-                "Press Cmd/Ctrl+F to open the find/grep box (Esc closes it): find \
-                 highlights matches and steps between them, grep filters the lines. \
-                 Along the bottom, 'follow' tails the output and 'clear' empties the \
-                 view. ANSI colors are rendered and lines are selectable.",
+                "Press Cmd/Ctrl+F (or the search button) to open the find/grep box \
+                 (Esc closes it): find highlights matches and steps between them, \
+                 grep filters the lines. Along the bottom, 'follow' tails the output, \
+                 'wrap' folds long lines, and 'clear' empties the view; when you \
+                 scroll up, a '↓ N new' chip counts output you haven't seen. ANSI \
+                 colors are rendered and lines are selectable.",
+            );
+            section(
+                ui,
+                "Shortcuts",
+                "Cmd/Ctrl+B toggles the sidebar. Cmd/Ctrl+Enter saves the project \
+                 form. Click a project's :port to open http://localhost:port; the \
+                 right-click menu also reveals the working directory and copies the \
+                 command. Stop waits up to 10 s for a graceful shutdown ('stopping'); \
+                 press Stop again to force-quit.",
             );
             section(
                 ui,

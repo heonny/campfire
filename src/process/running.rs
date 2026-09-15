@@ -10,7 +10,6 @@
 //!   before it could run `Drop`. The original handle and pipes died with that
 //!   instance, so we only have the leader PID; we can stop/restart it (via
 //!   [`crate::process::kill_tree`]) and watch its liveness, but not stream logs.
-#![allow(dead_code)] // started_at()/Starting are surfaced in later steps (health check, UI).
 
 use crate::model::ServerConfig;
 use crate::process::command::build_command;
@@ -35,13 +34,24 @@ type Wake = Arc<dyn Fn() + Send + Sync>;
 /// handle, so they poll — throttled to keep the syscall cost negligible.
 const ADOPTED_LIVENESS_INTERVAL: Duration = Duration::from_secs(1);
 
+/// How often a `Starting` process re-probes its port to see if it is listening
+/// yet. Binding a throwaway listener is cheap, but not per-frame cheap.
+const READY_PROBE_INTERVAL: Duration = Duration::from_millis(500);
+
 /// Lifecycle state of a managed process.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
     Stopped,
+    /// Spawned, but the configured port isn't listening yet. Servers with no
+    /// port skip this and start as `Running`.
     Starting,
     Running,
-    Crashed { code: Option<i32> },
+    /// A graceful stop is in flight (grace window running); a second stop
+    /// force-kills at once.
+    Stopping,
+    Crashed {
+        code: Option<i32>,
+    },
 }
 
 /// How a [`RunningProcess`] is attached to its OS process.
@@ -76,6 +86,9 @@ pub struct RunningProcess {
     /// deadline wake-up independent of the render loop's cadence.
     wake: Wake,
     pid: u32,
+    /// The configured port, probed while `Starting` to flip to `Running`.
+    port: Option<u16>,
+    last_ready_probe: Option<Instant>,
 }
 
 impl RunningProcess {
@@ -108,12 +121,19 @@ impl RunningProcess {
         Ok(Self {
             handle: ProcessHandle::Owned { child, log_rx },
             logs: LogBuffer::default(),
-            status: Status::Running,
+            // With a port to watch, the server is only "running" once it listens.
+            status: if config.port.is_some() {
+                Status::Starting
+            } else {
+                Status::Running
+            },
             started_at: SystemTime::now(),
             stop_requested: false,
             force_deadline: None,
             wake,
             pid,
+            port: config.port,
+            last_ready_probe: None,
         })
     }
 
@@ -137,6 +157,8 @@ impl RunningProcess {
             force_deadline: None,
             wake: Arc::new(wake),
             pid: entry.pid,
+            port: entry.port,
+            last_ready_probe: None,
         }
     }
 
@@ -160,6 +182,8 @@ impl RunningProcess {
             self.force_kill();
             self.force_deadline = None;
         }
+
+        self.probe_ready();
 
         // Owned: reap through the handle for an exact exit code.
         if let ProcessHandle::Owned { child, .. } = &mut self.handle {
@@ -209,6 +233,28 @@ impl RunningProcess {
         }
     }
 
+    /// While `Starting`, flip to `Running` once the configured port accepts a
+    /// connection (v4 or v6 localhost). A point-in-time probe, throttled.
+    fn probe_ready(&mut self) {
+        if self.status != Status::Starting {
+            return;
+        }
+        let Some(port) = self.port else {
+            self.status = Status::Running;
+            return;
+        };
+        let due = self
+            .last_ready_probe
+            .is_none_or(|at| at.elapsed() >= READY_PROBE_INTERVAL);
+        if !due {
+            return;
+        }
+        self.last_ready_probe = Some(Instant::now());
+        if crate::port::is_listening(port) {
+            self.status = Status::Running;
+        }
+    }
+
     /// Request shutdown of the whole process group. Sends a graceful signal and
     /// escalates to a forceful kill after `grace` (via [`RunningProcess::poll`]).
     /// Owned processes signal through the group-child handle; adopted ones go
@@ -227,6 +273,7 @@ impl RunningProcess {
             return;
         }
         self.stop_requested = true;
+        self.status = Status::Stopping;
 
         if self.request_termination() {
             // A graceful signal was sent — bound it: escalate to a forceful kill
@@ -406,6 +453,35 @@ mod tests {
     }
 
     #[test]
+    fn spawn_without_port_is_running_at_once() {
+        let proc = RunningProcess::spawn(&config_with_command("sleep 1"), || {}).unwrap();
+        assert_eq!(proc.status(), &Status::Running);
+    }
+
+    #[test]
+    fn starting_flips_to_running_once_the_port_listens() {
+        // Pick a free port, spawn a server that never listens on it: Starting.
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut config = config_with_command("sleep 5");
+        config.port = Some(port);
+        let mut proc = RunningProcess::spawn(&config, || {}).unwrap();
+        proc.poll();
+        assert_eq!(proc.status(), &Status::Starting);
+
+        // Something starts listening on the port: the next due probe sees it.
+        let _listener = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
+        thread::sleep(READY_PROBE_INTERVAL);
+        proc.poll();
+        assert_eq!(proc.status(), &Status::Running);
+        proc.stop(Duration::from_millis(100));
+        drain_until_terminal(&mut proc, Duration::from_secs(5));
+    }
+
+    #[test]
     fn nonzero_exit_is_crashed() {
         let mut proc = RunningProcess::spawn(&config_with_command("exit 3"), || {}).unwrap();
         drain_until_terminal(&mut proc, Duration::from_secs(5));
@@ -424,6 +500,7 @@ mod tests {
         assert_eq!(proc.status(), &Status::Running);
 
         proc.stop(Duration::from_millis(300));
+        assert_eq!(proc.status(), &Status::Stopping, "grace window in flight");
         drain_until_terminal(&mut proc, Duration::from_secs(5));
 
         assert!(proc.is_terminal(), "process did not stop");
@@ -456,7 +533,10 @@ mod tests {
         // Second stop: must force-kill now, not wait out the 60s grace.
         proc.stop(Duration::from_secs(60));
         drain_until_terminal(&mut proc, Duration::from_secs(5));
-        assert!(proc.is_terminal(), "second stop did not force-kill the group");
+        assert!(
+            proc.is_terminal(),
+            "second stop did not force-kill the group"
+        );
         assert_eq!(proc.status(), &Status::Stopped);
     }
 

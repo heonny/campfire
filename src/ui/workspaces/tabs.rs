@@ -39,6 +39,12 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces, view: &View) {
     let mut start_rename: Option<usize> = None;
     let mut commit_rename = false;
 
+    // A lone empty workspace shows no strip at all, so the dock's top lines up
+    // with the sidebar's; the strip appears with the first log.
+    if wss.solo_hidden() {
+        return;
+    }
+
     egui::ScrollArea::horizontal()
         .id_salt("workspace_tabs")
         .auto_shrink([false, true])
@@ -46,18 +52,7 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces, view: &View) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 ui.set_min_height(TAB_HEIGHT);
-                // Once content names the tab, the reveal flag has done its job;
-                // clearing it re-hides the tab if the workspace empties again.
-                if !wss.active().open_ids().is_empty() {
-                    wss.solo_revealed = false;
-                }
-                // A lone empty workspace shows no tab at all — just the + —
-                // unless + explicitly revealed it.
-                let hide = wss.solo_hidden();
                 for index in 0..wss.list.len() {
-                    if hide {
-                        break;
-                    }
                     match &mut wss.renaming {
                         Some((i, buffer)) if *i == index => {
                             if rename_field(ui, buffer) {
@@ -88,14 +83,12 @@ pub(super) fn strip(ui: &mut egui::Ui, wss: &mut Workspaces, view: &View) {
                     })
                     .clicked()
                 {
-                    wss.add_or_reveal();
+                    wss.add();
                 }
             });
         });
 
-    if commit_rename
-        && let Some((index, buffer)) = wss.renaming.take()
-    {
+    if commit_rename && let Some((index, buffer)) = wss.renaming.take() {
         let name = buffer.trim();
         if !name.is_empty()
             && let Some(ws) = wss.list.get_mut(index)
@@ -152,7 +145,11 @@ fn chip(
     };
     let galley = ui.painter().layout_no_wrap(title, font, color);
 
-    let close_extra = if selected { CLOSE_GAP + CLOSE_SIZE } else { 0.0 };
+    let close_extra = if selected {
+        CLOSE_GAP + CLOSE_SIZE
+    } else {
+        0.0
+    };
     let width = CHIP_PAD_X + galley.size().x + close_extra + CHIP_PAD_X;
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(width, TAB_HEIGHT), egui::Sense::click());
@@ -182,15 +179,14 @@ fn chip(
     // after the chip response, so it wins the pointer over that area).
     if selected {
         let close_rect = egui::Rect::from_center_size(
-            egui::pos2(rect.right() - CHIP_PAD_X - CLOSE_SIZE / 2.0, rect.center().y),
+            egui::pos2(
+                rect.right() - CHIP_PAD_X - CLOSE_SIZE / 2.0,
+                rect.center().y,
+            ),
             egui::vec2(CLOSE_SIZE, CLOSE_SIZE),
         );
         let close_response = ui
-            .interact(
-                close_rect,
-                response.id.with("close"),
-                egui::Sense::click(),
-            )
+            .interact(close_rect, response.id.with("close"), egui::Sense::click())
             .on_hover_text("Close workspace");
         if close_response.hovered() {
             ui.painter().rect_filled(

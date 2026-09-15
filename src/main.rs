@@ -14,13 +14,14 @@ mod process;
 mod project;
 mod search;
 mod store;
+mod system;
 mod theme;
 mod ui;
 
 use eframe::egui;
 use model::ServerConfig;
 use process::kill_tree;
-use process::running::RunningProcess;
+use process::running::{RunningProcess, Status};
 use process::runtime_state::{self, RuntimeEntry};
 use process::shutdown;
 use std::collections::{HashMap, HashSet};
@@ -31,6 +32,23 @@ use ui::editor::{EditorForm, EditorOutcome};
 use ui::workspaces::Workspaces;
 
 fn main() -> eframe::Result<()> {
+    // One instance at a time: a second one would adopt this one's servers
+    // through the shared running.json and kill them on close.
+    let Some(_instance_lock) = process::instance_lock::acquire() else {
+        // Windows happily launches an exe twice, so say why this one quits.
+        // On macOS LaunchServices already de-dupes the bundle (and rfd's
+        // dialog can't show before the app's event loop exists), so a log
+        // line is all that's needed.
+        #[cfg(windows)]
+        rfd::MessageDialog::new()
+            .set_title("Campfire")
+            .set_description("Campfire is already running.")
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        eprintln!("campfire: another instance is already running; exiting");
+        return Ok(());
+    };
+
     // Relay signal-based termination (SIGTERM/SIGINT/…) to our server groups,
     // since a signal skips the Drop that normally kills them on window close.
     shutdown::install_handler();
@@ -75,7 +93,10 @@ const STOP_GRACE: Duration = Duration::from_secs(10);
 /// expands it. egui shares one resize handle across both, so a single drag can
 /// do either, and it drives the `is_expanded` flag for us.
 const SIDEBAR_DEFAULT_WIDTH: f32 = 240.0;
-const SIDEBAR_MIN_WIDTH: f32 = 150.0;
+/// The narrowest width at which the header (title, count, three icon buttons)
+/// and the card rows still lay out cleanly; below it the drag snaps straight to
+/// the rail, so there is no half-broken in-between.
+const SIDEBAR_MIN_WIDTH: f32 = 232.0;
 const SIDEBAR_RAIL_WIDTH: f32 = 44.0;
 /// How long the sidebar collapse/expand slide takes. Longer than egui's 0.2 s
 /// default so this wide panel eases smoothly instead of snapping; scoped to the
@@ -123,8 +144,6 @@ struct CampfireApp {
     /// open. Both the sidebar context menu and the editor's Delete button set
     /// this; the actual removal happens only on explicit confirm.
     pending_delete: Option<String>,
-    /// Lazily-loaded top-bar logo texture.
-    logo: Option<egui::TextureHandle>,
     /// Servers currently running, mirrored to disk so a force-killed instance
     /// can reconcile orphaned processes on the next launch. Keyed by server id.
     runtime: HashMap<String, RuntimeEntry>,
@@ -183,19 +202,26 @@ impl CampfireApp {
             toast = reconcile_notice(running.len(), stopped).map(Toast::new);
         }
 
+        // Workspaces are session-only, but a launch that recovered running
+        // servers opens their logs right away (sidebar order, up to the pane
+        // cap) so nothing has to be dragged out again.
+        let mut workspaces = Workspaces::new();
+        for server in servers.iter().filter(|s| running.contains_key(&s.id)) {
+            if workspaces.active_mut().open_auto(&server.id).is_some() {
+                break;
+            }
+        }
+
         Self {
             servers,
             running,
             editor: None,
             pending_delete: None,
-            // Workspaces are session-only: every launch starts from one fresh
-            // empty workspace.
-            workspaces: Workspaces::new(),
+            workspaces,
             toast,
             restart_pending: HashSet::new(),
             metrics: metrics::Metrics::new(),
             show_help: false,
-            logo: None,
             runtime,
             runtime_path,
             sidebar_collapsed: false,
@@ -463,6 +489,10 @@ impl CampfireApp {
     }
 }
 
+fn before_is_terminal(status: &Status) -> bool {
+    matches!(status, Status::Stopped | Status::Crashed { .. })
+}
+
 /// Move the element at `from` to insertion index `to`, where `to` is the drop
 /// position computed **before** removal (as the drag UI reports it), and adjust
 /// for the earlier removal when moving down. Returns whether the order actually
@@ -510,24 +540,39 @@ impl eframe::App for CampfireApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if self.logo.is_none()
-            && let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!(
-                "../assets/images/logo-mark-64.png"
-            ))
-        {
-            let image = egui::ColorImage::from_rgba_unmultiplied(
-                [icon.width as usize, icon.height as usize],
-                &icon.rgba,
-            );
-            self.logo = Some(
-                ui.ctx()
-                    .load_texture("logo", image, egui::TextureOptions::LINEAR),
-            );
-        }
-
         // Drive live processes: drain logs, detect exit, escalate shutdown.
-        for proc in self.running.values_mut() {
+        // A crash is announced with a toast (the card's red dot alone is easy
+        // to miss); so is a server becoming ready on its port.
+        let mut notices: Vec<String> = Vec::new();
+        for (id, proc) in self.running.iter_mut() {
+            let before = proc.status().clone();
             proc.poll();
+            let name = || {
+                self.servers
+                    .iter()
+                    .find(|s| s.id == *id)
+                    .map(|s| s.name.as_str())
+                    .unwrap_or(id)
+            };
+            match (before, proc.status()) {
+                (Status::Starting, Status::Running) => {
+                    let secs = proc
+                        .started_at()
+                        .elapsed()
+                        .unwrap_or_default()
+                        .as_secs_f32();
+                    notices.push(format!("'{}' is ready ({secs:.1}s).", name()));
+                }
+                (before, Status::Crashed { code }) if !before_is_terminal(&before) => {
+                    let exit = code.map(|c| format!(" (exit {c})")).unwrap_or_default();
+                    notices.push(format!("'{}' crashed{exit}.", name()));
+                }
+                _ => {}
+            }
+        }
+        // Several in one frame share a toast (there is only one slot).
+        if !notices.is_empty() {
+            self.toast = Some(Toast::new(notices.join(" ")));
         }
 
         // Keep the persisted runtime state accurate: drop entries whose process
@@ -568,56 +613,32 @@ impl eframe::App for CampfireApp {
         let dup_ports = port::duplicate_config_ports(&self.servers);
         let mut action: Option<Action> = None;
 
+        // Cmd/Ctrl+B: the top-bar sidebar button's shortcut, same Action.
+        if ui.input_mut(|i| {
+            i.consume_shortcut(&egui::KeyboardShortcut::new(
+                egui::Modifiers::COMMAND,
+                egui::Key::B,
+            ))
+        }) {
+            action = Some(Action::ToggleSidebar);
+        }
+
         // Every section is a white rounded block on the grey canvas: the panel
         // frames carry the canvas fill plus the outer margins (12 at the window
         // edge, 4 + 4 = 8 between blocks), and their divider lines are off.
-        egui::Panel::top("top_bar")
-            .frame(theme::canvas_frame(egui::Margin {
-                left: 12,
-                right: 12,
-                top: 12,
-                bottom: 4,
-            }))
-            .show_separator_line(false)
-            .show(ui, |ui| {
-                theme::block_frame()
-                    .inner_margin(egui::Margin::symmetric(12, 8))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            if let Some(logo) = &self.logo {
-                                ui.add(egui::Image::from_texture(logo).max_height(22.0));
-                            }
-                            ui.heading("Campfire");
-                            let active = self.running.values().filter(|p| !p.is_terminal()).count();
-                            ui.weak(format!("running {active}/{}", self.servers.len()));
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui
-                                        .add(ui::icon_button(ui::icons::help()))
-                                        .on_hover_text("Help")
-                                        .clicked()
-                                    {
-                                        action = Some(Action::OpenHelp);
-                                    }
-                                },
-                            );
-                        });
-                    });
-            });
-
-        // Snapshot the active workspace's focus/open set into locals, so `View`
+        // There is no top bar — the window title already says "Campfire", so
+        // the running count and help live in the sidebar header instead.
+        // Snapshot the active workspace's focus into a local, so `View`
         // doesn't borrow `workspaces` — it must stay free for the dock's
         // mutable render below.
         let focused = self.workspaces.active().focused().map(str::to_owned);
-        let open_logs = self.workspaces.active().open_ids();
+        let active = self.running.values().filter(|p| !p.is_terminal()).count();
         let view = ui::View {
+            active,
             servers: &self.servers,
             running: &self.running,
             dup_ports: &dup_ports,
             focused: focused.as_deref(),
-            open_logs: &open_logs,
             metrics: &self.metrics,
         };
         // Sidebar: `show_switched` cross-fades between the full card list and a
@@ -630,7 +651,7 @@ impl eframe::App for CampfireApp {
         let margin = egui::Margin {
             left: 12,
             right: 4,
-            top: 4,
+            top: 12,
             bottom: 12,
         };
         let collapsed_panel = egui::Panel::left("sidebar_rail")
@@ -672,7 +693,7 @@ impl eframe::App for CampfireApp {
             .frame(theme::canvas_frame(egui::Margin {
                 left: 4,
                 right: 12,
-                top: 4,
+                top: 12,
                 bottom: 12,
             }))
             .show(ui, |ui| self.workspaces.show(ui, &view, &mut action, &drag));
@@ -693,13 +714,18 @@ impl eframe::App for CampfireApp {
             self.sidebar_collapsed = !expanded;
         }
 
-
         if self.editor.is_some() {
             let mut outcome = EditorOutcome::None;
             if let Some(form) = &mut self.editor {
+                let self_running = form
+                    .editing_id()
+                    .and_then(|id| self.running.get(id))
+                    .is_some_and(|p| !p.is_terminal());
                 let response = egui::Modal::new(egui::Id::new("server_editor"))
                     .frame(theme::modal_frame())
-                    .show(ui.ctx(), |ui| ui::editor::show(ui, form));
+                    .show(ui.ctx(), |ui| {
+                        ui::editor::show(ui, form, &self.servers, self_running)
+                    });
                 let dismissed = response.should_close();
                 outcome = response.inner;
                 if dismissed && matches!(outcome, EditorOutcome::None) {

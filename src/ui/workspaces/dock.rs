@@ -11,7 +11,7 @@ use crate::process::log_buffer::LogBuffer;
 use crate::process::running::Status;
 use crate::theme;
 use crate::ui::log_view::{self, LogView};
-use crate::ui::{Action, View, icon_button, icons, status_dot, status_text};
+use crate::ui::{Action, View, icon_button, icons, port_link, status_dot, status_text};
 use eframe::egui;
 use egui_tiles::{Behavior, ResizeState, TileId, UiResponse};
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ pub(super) fn show_active(
             ui.set_width(ui.available_width());
             ui.set_min_height(ui.available_height());
             ui.centered_and_justified(|ui| {
-                ui.weak("좌측의 프로젝트 카드를 이곳으로 드래그하면 로그가 열립니다 (최대 4개)");
+                ui.weak("Drag a project card here to open its log (up to 4 side by side).");
             });
         });
         return;
@@ -114,6 +114,9 @@ impl Behavior<String> for DockBehavior<'_> {
         let status = proc.map(|p| p.status().clone()).unwrap_or(Status::Stopped);
         let active = proc.is_some_and(|p| !p.is_terminal());
         let recovered = proc.is_some_and(|p| p.is_recovered());
+        let uptime = proc
+            .filter(|p| !p.is_terminal())
+            .and_then(|p| p.started_at().elapsed().ok());
 
         // The focused pane gets a softened accent border so the sidebar
         // highlight and the pane it refers to read as one, without shouting;
@@ -136,6 +139,7 @@ impl Behavior<String> for DockBehavior<'_> {
                 &status,
                 active,
                 recovered,
+                uptime,
                 self.action,
                 &mut self.close,
             );
@@ -172,8 +176,20 @@ impl Behavior<String> for DockBehavior<'_> {
     }
 }
 
+/// Compact uptime: `<1m`, `12m`, `3h 05m`, `2d 4h` — never seconds, which
+/// would tick visibly in the header.
+fn format_uptime(up: std::time::Duration) -> String {
+    let s = up.as_secs();
+    match s {
+        0..60 => "<1m".to_owned(),
+        60..3600 => format!("{}m", s / 60),
+        3600..86_400 => format!("{}h {:02}m", s / 3600, (s % 3600) / 60),
+        _ => format!("{}d {}h", s / 86_400, (s % 86_400) / 3600),
+    }
+}
+
 /// One pane's header, kept slim: a status dot (state in its tooltip) and the
-/// truncating name on the left; start/stop/restart and × on the right. Only
+/// truncating name on the left, then the clickable port and uptime; start/stop/restart and × on the right. Only
 /// the name truncates and nothing renders after it, so a narrow pane elides
 /// the title instead of overlapping the buttons. The title strip doubles as
 /// the pane's drag handle and focus click target — its response is returned.
@@ -185,6 +201,7 @@ fn pane_header(
     status: &Status,
     active: bool,
     recovered: bool,
+    uptime: Option<std::time::Duration>,
     action: &mut Option<Action>,
     close: &mut Vec<TileId>,
 ) -> egui::Response {
@@ -221,6 +238,14 @@ fn pane_header(
             {
                 *action = Some(Action::Start(server.id.clone()));
             }
+            // Uptime and the clickable port sit between the buttons and the
+            // name (laid out right-to-left, so uptime lands rightmost).
+            if let Some(up) = uptime {
+                ui.weak(format_uptime(up));
+            }
+            if let Some(port) = server.port {
+                port_link(ui, port);
+            }
             let inner = ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 let mut state = status_text(status);
                 if recovered {
@@ -245,4 +270,21 @@ fn pane_header(
         });
     });
     title.expect("title strip was rendered above")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_uptime;
+    use std::time::Duration;
+
+    #[test]
+    fn uptime_picks_the_coarsest_useful_unit() {
+        assert_eq!(format_uptime(Duration::from_secs(42)), "<1m");
+        assert_eq!(format_uptime(Duration::from_secs(750)), "12m");
+        assert_eq!(format_uptime(Duration::from_secs(3 * 3600 + 300)), "3h 05m");
+        assert_eq!(
+            format_uptime(Duration::from_secs(2 * 86_400 + 4 * 3600)),
+            "2d 4h"
+        );
+    }
 }
