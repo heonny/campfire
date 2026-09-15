@@ -1,7 +1,7 @@
 //! Static help/usage content, shown in a modal. Returns `true` when the user
 //! clicks Close.
 
-use super::{modal_scroll, primary_button};
+use super::{modal_scroll, text_button};
 use eframe::egui;
 
 pub fn show(ui: &mut egui::Ui) -> bool {
@@ -89,8 +89,10 @@ pub fn show(ui: &mut egui::Ui) -> bool {
     });
 
     ui.add_space(8.0);
+    // A plain button: closing help is not a primary action, and the accent is
+    // reserved for ones that are (Save).
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        ui.add(primary_button("Close")).clicked()
+        ui.add(text_button("Close")).clicked()
     })
     .inner
 }
