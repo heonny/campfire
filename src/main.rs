@@ -522,13 +522,13 @@ fn reconcile_notice(recovered: usize, stopped: usize) -> Option<String> {
     match (recovered, stopped) {
         (0, 0) => None,
         (r, 0) => Some(format!(
-            "Recovered {r} running server(s) from a previous session."
+            "Recovered {r} running project(s) from a previous session."
         )),
         (0, s) => Some(format!(
-            "Stopped {s} orphaned server(s) from a previous session."
+            "Stopped {s} orphaned project(s) from a previous session."
         )),
         (r, s) => Some(format!(
-            "Recovered {r} running server(s) and stopped {s} orphan(s) from a previous session."
+            "Recovered {r} running project(s) and stopped {s} orphan(s) from a previous session."
         )),
     }
 }

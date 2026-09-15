@@ -18,7 +18,7 @@ pub fn show(ui: &mut egui::Ui) -> bool {
         );
         section(
             ui,
-            "Add a server",
+            "Add a project",
             "Click + Add. Pick a preset (it fills the command and a default \
                  port), choose the working directory with Browse…, and set the \
                  command to run. Env vars and a .env file are optional.",

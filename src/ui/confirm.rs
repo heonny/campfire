@@ -18,12 +18,12 @@ pub enum ConfirmOutcome {
     Confirm,
 }
 
-/// Show a "delete this server?" confirmation for the server named `name`. The
+/// Show a "delete this project?" confirmation for the project named `name`. The
 /// confirm button is filled with the error color (and sits on the right, macOS
 /// style) so the destructive result is unmistakable; Cancel is plain.
 pub fn show_delete(ui: &mut egui::Ui, name: &str) -> ConfirmOutcome {
     ui.set_max_width(360.0);
-    ui.heading("Delete server?");
+    ui.heading("Delete project?");
     ui.add_space(4.0);
     ui.label(format!(
         "'{name}' will be stopped and permanently removed. This can't be undone."
