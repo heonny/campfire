@@ -132,7 +132,7 @@ struct CampfireApp {
     /// data stays in `running`).
     workspaces: Workspaces,
     /// Transient toast (e.g. a port conflict that blocked a start): the text
-    /// and when it expires. Rendered floating top-center, fading in/out.
+    /// and when it expires. Rendered floating bottom-center, fading in/out.
     toast: Option<Toast>,
     /// Servers awaiting a restart once their current process has terminated.
     restart_pending: HashSet<String>,
@@ -433,7 +433,7 @@ impl CampfireApp {
         }
     }
 
-    /// Render the transient toast: a dark chip floating top-center, fading
+    /// Render the transient toast: a dark chip floating bottom-center, fading
     /// in while alive and out after [`TOAST_LIFETIME`]. Cleared once invisible.
     fn render_toast(&mut self, ctx: &egui::Context) {
         let fade_id = egui::Id::new("toast_fade");
@@ -453,10 +453,8 @@ impl CampfireApp {
             // Wake exactly when the fade-out should start.
             ctx.request_repaint_after(toast.until - now);
         }
-        // Top-center: the bottom edge is where every pane keeps its control
-        // bar, which a bottom toast would cover.
         egui::Area::new(egui::Id::new("toast"))
-            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 16.0))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -24.0))
             .order(egui::Order::Foreground)
             .interactable(false)
             .show(ctx, |ui| {
