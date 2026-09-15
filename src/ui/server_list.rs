@@ -317,7 +317,7 @@ pub fn rail(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
                 .map(|p| p.status().clone())
                 .unwrap_or(Status::Stopped);
             let focused = view.focused == Some(server.id.as_str());
-            if rail_dot(ui, &status, focused)
+            if rail_chip(ui, &server.name, &status, focused)
                 .on_hover_text(&server.name)
                 .clicked()
             {
@@ -328,18 +328,48 @@ pub fn rail(ui: &mut egui::Ui, view: &View, action: &mut Option<Action>) {
     });
 }
 
-/// One clickable server dot for the rail: a filled circle in the status color on
-/// a rounded-square backing when selected or hovered — matching the log
-/// toolbar's icon buttons, with no accent tint on the dot itself.
-fn rail_dot(ui: &mut egui::Ui, status: &Status, selected: bool) -> egui::Response {
+/// One clickable project chip for the rail: the name's monogram on a
+/// rounded-square backing (filled when selected or hovered, like the icon
+/// buttons), with a small status dot at the bottom-right corner. A bare dot
+/// per project left nine identical greys with nothing to tell them apart.
+fn rail_chip(ui: &mut egui::Ui, name: &str, status: &Status, selected: bool) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::click());
+    let painter = ui.painter();
     if selected || response.hovered() {
-        ui.painter()
-            .rect_filled(rect, egui::CornerRadius::same(6), theme::BUTTON_HOVER_FILL);
+        painter.rect_filled(rect, egui::CornerRadius::same(6), theme::BUTTON_HOVER_FILL);
     }
-    ui.painter()
-        .circle_filled(rect.center(), 5.0, status_dot_fill(status));
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        monogram(name),
+        egui::TextStyle::Small.resolve(ui.style()),
+        ui.visuals().text_color(),
+    );
+    // Status dot in the corner, ringed in the backing color so it stays
+    // crisp over the letter.
+    let dot = rect.right_bottom() + egui::vec2(-6.0, -6.0);
+    painter.circle_filled(dot, 4.0, egui::Color32::WHITE);
+    painter.circle_filled(dot, 3.0, status_dot_fill(status));
     response
+}
+
+/// A two-letter monogram: the first letter of the first word and of the last
+/// word (`admin-web` → AW, `admin-api clean` → AC, `producer` → P). Names in a
+/// list tend to share a prefix, so a single initial told nine chips apart as
+/// "A A A A A A P P P".
+fn monogram(name: &str) -> String {
+    let words: Vec<&str> = name
+        .split(|c: char| c == '-' || c == '_' || c == '.' || c.is_whitespace())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let first = words.first().and_then(|w| w.chars().next());
+    let last = words.last().and_then(|w| w.chars().next());
+    match (first, last) {
+        (Some(a), Some(b)) if words.len() > 1 => format!("{a}{b}"),
+        (Some(a), _) => a.to_string(),
+        _ => String::new(),
+    }
+    .to_uppercase()
 }
 
 /// The card's second line: CPU/memory while running, the exit code after a
@@ -361,4 +391,18 @@ fn metrics_row(ui: &mut egui::Ui, metrics: Option<(f32, u64)>, status: &Status, 
         };
         ui.add(egui::Label::new(text.small()).truncate());
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::monogram;
+
+    #[test]
+    fn monogram_takes_first_and_last_word_initials() {
+        assert_eq!(monogram("admin-web"), "AW");
+        assert_eq!(monogram("admin-api clean"), "AC");
+        assert_eq!(monogram("producer"), "P");
+        assert_eq!(monogram("my_service.v2"), "MV");
+        assert_eq!(monogram("  "), "");
+    }
 }
