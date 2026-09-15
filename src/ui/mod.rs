@@ -187,6 +187,36 @@ pub fn port_link(ui: &mut egui::Ui, port: u16) -> egui::Response {
     response
 }
 
+/// The tallest a modal's scrolling body may grow: the window height minus the
+/// dialog's fixed chrome (outer margins, heading, subtitle, footer). Sized so
+/// the body fills the window instead of clipping content at a fixed height.
+pub fn modal_body_max_height(ui: &egui::Ui) -> f32 {
+    (ui.ctx().input(|i| i.content_rect().height()) - 170.0).max(180.0)
+}
+
+/// A scroll area for a modal body: a solid (non-floating) bar that is visible
+/// whenever the content overflows, so a clipped form reads as scrollable
+/// rather than cut off.
+pub fn modal_scroll(ui: &mut egui::Ui) -> egui::ScrollArea {
+    let scroll = &mut ui.spacing_mut().scroll;
+    scroll.floating = false;
+    // Slim, like the sidebar's bar; the default solid bar is a thick 8 + 4.
+    scroll.bar_width = 5.0;
+    scroll.bar_inner_margin = 8.0;
+    scroll.bar_outer_margin = 0.0;
+    // A solid bar's handle is painted in the widget `bg_fill` (with
+    // `foreground_color` off), near-black in egui's light theme; quiet it to
+    // the surface greys so it reads as a rail, not a black pill.
+    scroll.foreground_color = false;
+    let widgets = &mut ui.visuals_mut().widgets;
+    widgets.inactive.bg_fill = egui::Color32::from_rgb(0xD5, 0xDA, 0xE3);
+    widgets.hovered.bg_fill = egui::Color32::from_rgb(0xB9, 0xC0, 0xCC);
+    widgets.active.bg_fill = egui::Color32::from_rgb(0x9C, 0xA5, 0xB4);
+    egui::ScrollArea::vertical()
+        .max_height(modal_body_max_height(ui))
+        .auto_shrink([false, true])
+}
+
 /// A single-line text input drawn as a bordered, padded box. Fields are
 /// otherwise borderless (the theme zeroes widget outlines for the flat buttons),
 /// so the box is a wrapping [`egui::Frame`]; the inner [`egui::TextEdit`] is
