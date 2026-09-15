@@ -14,9 +14,6 @@ pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFF, 0xE4, 0xCF);
 /// `ACCENT_WEAK`, which is reserved for transient emphasis (drop previews).
 pub const ACCENT_TINT: Color32 = Color32::from_rgb(0xFF, 0xF5, 0xEE);
 
-/// Toast surface: warm near-black chip with white text, floating bottom-center.
-pub const TOAST_FILL: Color32 = Color32::from_rgb(0x2B, 0x29, 0x26);
-
 /// Destructive-action fill (the confirm dialog's Delete button). A muted brick
 /// red — the same hue as the crashed-status color — dark enough that white text
 /// clears WCAG AA (~5.4:1), unlike egui's raw `error_fg_color` (#FF0000), which

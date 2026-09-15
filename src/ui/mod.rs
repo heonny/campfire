@@ -8,6 +8,7 @@ use crate::process::running::{RunningProcess, Status};
 use eframe::egui;
 use std::collections::{BTreeSet, HashMap};
 
+pub mod banner;
 pub mod confirm;
 pub mod editor;
 pub mod help;

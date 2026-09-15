@@ -106,15 +106,23 @@ const SIDEBAR_SLIDE_TIME: f32 = 0.35;
 /// How long a toast stays before fading out.
 const TOAST_LIFETIME: Duration = Duration::from_secs(4);
 
-/// A transient bottom-center notification.
+/// A transient notification, shown as a banner sliding in from the top.
 struct Toast {
+    title: String,
     text: String,
     until: std::time::Instant,
 }
 
 impl Toast {
+    /// A banner titled with the app name.
     fn new(text: impl Into<String>) -> Self {
+        Self::titled("Campfire", text)
+    }
+
+    /// A banner with its own title (e.g. "Crashed", "Ready").
+    fn titled(title: impl Into<String>, text: impl Into<String>) -> Self {
         Self {
+            title: title.into(),
             text: text.into(),
             until: std::time::Instant::now() + TOAST_LIFETIME,
         }
@@ -144,6 +152,8 @@ struct CampfireApp {
     /// open. Both the sidebar context menu and the editor's Delete button set
     /// this; the actual removal happens only on explicit confirm.
     pending_delete: Option<String>,
+    /// The app mark for the notification banner, loaded on first use.
+    logo: Option<egui::TextureHandle>,
     /// Servers currently running, mirrored to disk so a force-killed instance
     /// can reconcile orphaned processes on the next launch. Keyed by server id.
     runtime: HashMap<String, RuntimeEntry>,
@@ -222,6 +232,7 @@ impl CampfireApp {
             restart_pending: HashSet::new(),
             metrics: metrics::Metrics::new(),
             show_help: false,
+            logo: None,
             runtime,
             runtime_path,
             sidebar_collapsed: false,
@@ -433,46 +444,38 @@ impl CampfireApp {
         }
     }
 
-    /// Render the transient toast: a dark chip floating bottom-center, fading
-    /// in while alive and out after [`TOAST_LIFETIME`]. Cleared once invisible.
+    /// Render the transient toast as a top banner: slides in while alive,
+    /// slides back out after [`TOAST_LIFETIME`]. Cleared once fully hidden.
     fn render_toast(&mut self, ctx: &egui::Context) {
-        let fade_id = egui::Id::new("toast_fade");
+        let slide_id = egui::Id::new("toast_slide");
         let Some(toast) = &self.toast else {
-            // Keep the animation settled at 0 so the next toast fades in.
-            ctx.animate_bool(fade_id, false);
+            // Keep the animation settled at 0 so the next banner slides in.
+            ctx.animate_bool_with_time(slide_id, false, ui::banner::SLIDE_TIME);
             return;
         };
         let now = std::time::Instant::now();
         let alive = now < toast.until;
-        let alpha = ctx.animate_bool(fade_id, alive);
-        if !alive && alpha <= 0.0 {
+        let progress = ctx.animate_bool_with_time(slide_id, alive, ui::banner::SLIDE_TIME);
+        if !alive && progress <= 0.0 {
             self.toast = None;
             return;
         }
         if alive {
-            // Wake exactly when the fade-out should start.
+            // Wake exactly when the slide-out should start.
             ctx.request_repaint_after(toast.until - now);
         }
-        egui::Area::new(egui::Id::new("toast"))
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -24.0))
-            .order(egui::Order::Foreground)
-            .interactable(false)
-            .show(ctx, |ui| {
-                ui.set_opacity(alpha);
-                egui::Frame::new()
-                    .fill(theme::TOAST_FILL)
-                    .corner_radius(egui::CornerRadius::same(8))
-                    .inner_margin(egui::Margin::symmetric(14, 9))
-                    .shadow(egui::Shadow {
-                        offset: [0, 4],
-                        blur: 16,
-                        spread: 0,
-                        color: egui::Color32::from_black_alpha(50),
-                    })
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new(&toast.text).color(egui::Color32::WHITE));
-                    });
-            });
+        if self.logo.is_none()
+            && let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!(
+                "../assets/images/logo-mark-64.png"
+            ))
+        {
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [icon.width as usize, icon.height as usize],
+                &icon.rgba,
+            );
+            self.logo = Some(ctx.load_texture("logo", image, egui::TextureOptions::LINEAR));
+        }
+        ui::banner::show(ctx, self.logo.as_ref(), &toast.title, &toast.text, progress);
     }
 
     /// Rewrite `running.json` from the current in-memory set. Best-effort: a
@@ -543,7 +546,7 @@ impl eframe::App for CampfireApp {
         // Drive live processes: drain logs, detect exit, escalate shutdown.
         // A crash is announced with a toast (the card's red dot alone is easy
         // to miss); so is a server becoming ready on its port.
-        let mut notices: Vec<String> = Vec::new();
+        let mut notices: Vec<(&'static str, String)> = Vec::new();
         for (id, proc) in self.running.iter_mut() {
             let before = proc.status().clone();
             proc.poll();
@@ -561,18 +564,27 @@ impl eframe::App for CampfireApp {
                         .elapsed()
                         .unwrap_or_default()
                         .as_secs_f32();
-                    notices.push(format!("'{}' is ready ({secs:.1}s).", name()));
+                    notices.push(("Ready", format!("'{}' is up ({secs:.1}s).", name())));
                 }
                 (before, Status::Crashed { code }) if !before_is_terminal(&before) => {
                     let exit = code.map(|c| format!(" (exit {c})")).unwrap_or_default();
-                    notices.push(format!("'{}' crashed{exit}.", name()));
+                    notices.push(("Crashed", format!("'{}' exited{exit}.", name())));
                 }
                 _ => {}
             }
         }
-        // Several in one frame share a toast (there is only one slot).
-        if !notices.is_empty() {
-            self.toast = Some(Toast::new(notices.join(" ")));
+        // Several in one frame share a banner (there is only one slot).
+        match notices.as_slice() {
+            [] => {}
+            [(title, text)] => self.toast = Some(Toast::titled(*title, text.clone())),
+            many => {
+                let text = many
+                    .iter()
+                    .map(|(_, t)| t.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                self.toast = Some(Toast::new(text));
+            }
         }
 
         // Keep the persisted runtime state accurate: drop entries whose process
