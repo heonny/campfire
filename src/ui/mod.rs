@@ -181,6 +181,16 @@ pub fn port_link(ui: &mut egui::Ui, port: u16) -> egui::Response {
         )
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(format!("Open {url}"));
+    // The link affordance appears on hover only: an underline in the text's
+    // own grey, so at rest the port stays a quiet label.
+    if response.hovered() {
+        let rect = response.rect;
+        ui.painter().hline(
+            rect.x_range(),
+            rect.bottom() - 1.0,
+            egui::Stroke::new(1.0, ui.visuals().weak_text_color()),
+        );
+    }
     if response.clicked() {
         crate::system::open_url(&url);
     }
