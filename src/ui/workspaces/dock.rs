@@ -34,6 +34,9 @@ pub(super) fn show_active(
         return;
     }
 
+    // Focus only needs marking when there is a choice: with a single pane the
+    // accent border would just be noise.
+    let multi = ws.open_ids().len() > 1;
     let Workspace {
         id,
         tree,
@@ -48,6 +51,7 @@ pub(super) fn show_active(
         focused,
         action,
         close: Vec::new(),
+        multi,
     };
     tree.ui(&mut behavior, ui);
 
@@ -73,6 +77,8 @@ struct DockBehavior<'a> {
     action: &'a mut Option<Action>,
     /// Panes whose × was clicked this frame; removed after `Tree::ui` returns.
     close: Vec<TileId>,
+    /// Two or more panes are open, so the focused one is worth marking.
+    multi: bool,
 }
 
 impl Behavior<String> for DockBehavior<'_> {
@@ -118,11 +124,11 @@ impl Behavior<String> for DockBehavior<'_> {
             .filter(|p| !p.is_terminal())
             .and_then(|p| p.started_at().elapsed().ok());
 
-        // The focused pane gets a softened accent border so the sidebar
-        // highlight and the pane it refers to read as one, without shouting;
+        // With several panes, the focused one wears a softened accent border
+        // so the sidebar highlight and the pane it refers to read as one;
         // focus also owns the Cmd/Ctrl+F shortcut below.
         let is_focused = self.focused.as_deref() == Some(pane.as_str());
-        let frame = if is_focused {
+        let frame = if is_focused && self.multi {
             theme::block_frame().stroke(egui::Stroke::new(1.0, theme::ACCENT.gamma_multiply(0.55)))
         } else {
             theme::block_frame()

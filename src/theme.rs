@@ -5,8 +5,10 @@
 use eframe::egui;
 use egui::{Color32, CornerRadius, Margin, Stroke, Visuals, vec2};
 
-/// Campfire accent — a bright ember orange — and its pale selection tint.
-pub const ACCENT: Color32 = Color32::from_rgb(0xEA, 0x58, 0x0C);
+/// Campfire accent — a vivid ember orange — and its pale selection tint.
+/// Reserved for actions and brand moments (Save, links, drop preview, the
+/// multi-pane focus border), not for quiet status.
+pub const ACCENT: Color32 = Color32::from_rgb(0xF9, 0x73, 0x16);
 pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFF, 0xE4, 0xCF);
 /// A whisper of the accent for a focused card's fill — calmer than
 /// `ACCENT_WEAK`, which is reserved for transient emphasis (drop previews).
