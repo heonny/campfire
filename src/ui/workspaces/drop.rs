@@ -182,7 +182,7 @@ pub(super) fn handle_card_drag(
             .unwrap_or(Target::Append)
     };
 
-    paint_preview(ui, ws, &target, server, pos, dock_rect, fade);
+    paint_preview(ui, ws, &target, pos, dock_rect, fade);
 
     if !drag.finished {
         return None;
@@ -201,12 +201,10 @@ pub(super) fn handle_card_drag(
 /// The translucent accent overlay marking where the drop would land (or a
 /// "full" hint when it can't). Painted on the foreground layer so it sits above
 /// the pane contents.
-#[allow(clippy::too_many_arguments)] // straight-line paint inputs
 fn paint_preview(
     ui: &egui::Ui,
     ws: &Workspace,
     target: &Target,
-    server: &str,
     pos: egui::Pos2,
     dock: egui::Rect,
     fade: f32,
@@ -215,10 +213,21 @@ fn paint_preview(
         egui::Order::Foreground,
         egui::Id::new("card_drop_overlay"),
     ));
+    if matches!(target, Target::Focus) {
+        let text = painter.layout_no_wrap(
+            "Already open · release to focus".to_owned(),
+            egui::TextStyle::Body.resolve(ui.style()),
+            theme::ACCENT_TEXT,
+        );
+        let position = (pos + egui::vec2(14.0, 14.0))
+            .min(dock.max - text.size() - egui::vec2(8.0, 8.0))
+            .max(dock.min + egui::vec2(8.0, 8.0));
+        painter.galley(position, text, theme::ACCENT_TEXT);
+        return;
+    }
     let preview = match target {
         Target::Append => Some(dock),
-        // Already open: highlight the existing pane the drop would focus.
-        Target::Focus => ws.find_pane(server).and_then(|t| ws.tree.tiles.rect(t)),
+        Target::Focus => None,
         Target::Split(tile, zone) => ws.tree.tiles.rect(*tile).map(|r| zone_rect(r, *zone)),
         Target::Reject => None,
     };

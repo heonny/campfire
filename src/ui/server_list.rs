@@ -1,7 +1,7 @@
 //! The left panel: an Add button and the drag-reorderable list of servers. Each
 //! server is a clickable card with a status dot, name, port, a duplicate-port
-//! marker, and live CPU/memory while running. Reordering is handled by egui_dnd
-//! (the dragged card floats to the cursor and the rest slide aside, animated); a
+//! marker, and live CPU/memory while running. Cards stay stationary during a
+//! drag; a line marks the insertion point for sidebar reordering. A
 //! left click selects, a right click opens the context menu.
 
 use super::{
@@ -12,22 +12,10 @@ use crate::model::ServerConfig;
 use crate::process::running::Status;
 use crate::theme;
 use eframe::egui;
-use egui_dnd::{DragDropItem, Handle, ItemState, dnd};
-
-/// egui_dnd tracks each draggable by a stable [`egui::Id`]; key it off the
-/// server's own id so it survives reordering. `&ServerConfig` is not `Hash`, so
-/// it does NOT match egui_dnd's blanket `DragDropItem for T: AsId` (AsId = Hash +
-/// Debug) — this manual impl is the one that applies, with no overlap.
-impl DragDropItem for &ServerConfig {
-    fn id(&self) -> egui::Id {
-        egui::Id::new(("server_card", self.id.as_str()))
-    }
-}
 
 /// Render the sidebar. `dock_rect` is the workspace dock's rect from the LAST
-/// frame (the sidebar renders first): a card drag released inside it is a
-/// drop-into-dock, so the reorder that egui_dnd still reports (it always snaps
-/// to the closest list slot, however far the pointer is) must be swallowed.
+/// frame (the sidebar renders first). Only releases inside the sidebar can
+/// reorder projects; the dock handles its own drops.
 /// Returns the in-flight card drag for the dock's drop preview.
 pub fn show(
     ui: &mut egui::Ui,
@@ -118,49 +106,53 @@ pub fn show(
                         ui.weak("No projects yet — press + to add one.");
                         return;
                     }
-                    // egui_dnd renders each card, animates the reorder, and reports
-                    // the final move. We forward that as an Action so the app stays
-                    // the sole mutator — its `from`/`to` match `move_in_place` (egui_
-                    // dnd's `shift_vec` has the same semantics), so no translation.
-                    let response = dnd(ui, "server_reorder").show(
-                        view.servers.iter(),
-                        |ui, server, handle, state| {
-                            render_card(ui, view, server, handle, state, action, &mut drag.server);
-                        },
-                    );
-                    drag.finished = response.is_drag_finished();
-                    let over_dock = dock_rect
-                        .zip(ui.ctx().pointer_hover_pos())
-                        .is_some_and(|(rect, pos)| rect.contains(pos));
-                    if let Some(update) = response.final_update()
-                        && !over_dock
+                    let mut rows = Vec::with_capacity(view.servers.len());
+                    for server in view.servers {
+                        let response = ui
+                            .push_id(&server.id, |ui| render_card(ui, view, server, action))
+                            .inner;
+                        rows.push(response.rect);
+                        if response.dragged() || response.drag_stopped() {
+                            drag.server = Some(server.id.clone());
+                            drag.finished = response.drag_stopped();
+                        }
+                    }
+                    if let Some(server) = &drag.server
+                        && let Some(pos) = ui.ctx().pointer_hover_pos()
+                        && ui.clip_rect().contains(pos)
+                        && !dock_rect.is_some_and(|rect| rect.contains(pos))
                     {
-                        *action = Some(Action::Reorder {
-                            from: update.from,
-                            to: update.to,
-                        });
+                        let from = view.servers.iter().position(|s| s.id == *server).unwrap();
+                        let slot = rows.iter().take_while(|r| pos.y > r.center().y).count();
+                        let to = if slot > from { slot - 1 } else { slot };
+                        if from != to {
+                            let y = if slot == rows.len() {
+                                rows.last().unwrap().bottom() + 3.0
+                            } else {
+                                rows[slot].top() - 3.0
+                            };
+                            ui.painter().hline(
+                                rows[0].x_range(),
+                                y,
+                                egui::Stroke::new(2.0, theme::ACCENT),
+                            );
+                            if drag.finished {
+                                *action = Some(Action::Reorder { from, to });
+                            }
+                        }
                     }
                 });
         });
     drag
 }
 
-/// Render one server card inside its drag handle. The whole card is the handle
-/// (with a click sense, so a short press still selects — egui_dnd only starts a
-/// drag past a small move threshold); a right click opens the context menu.
+/// Stable card geometry keeps drag ownership independent of its destination.
 fn render_card(
     ui: &mut egui::Ui,
     view: &View,
     server: &ServerConfig,
-    handle: Handle<'_>,
-    state: ItemState,
     action: &mut Option<Action>,
-    dragging: &mut Option<String>,
-) {
-    // Report the in-flight drag so the dock can preview/accept a drop.
-    if state.dragged {
-        *dragging = Some(server.id.clone());
-    }
+) -> egui::Response {
     let running = view.running.get(&server.id);
     let active = running.is_some_and(|p| !p.is_terminal());
     let status = running
@@ -185,33 +177,47 @@ fn render_card(
         theme::CARD_FILL
     };
 
-    let response = handle.sense(egui::Sense::click()).ui(ui, |ui| {
-        theme::card_frame()
-            .fill(fill)
-            .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    status_dot(ui, &status);
-                    // Lay the right-aligned items out first, then give the name
-                    // the remaining space, truncated — so a narrow sidebar elides
-                    // the name instead of drawing it under the port.
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if dup {
-                            let warn = ui.visuals().warn_fg_color;
-                            ui.colored_label(warn, "⚠").on_hover_text("duplicate port");
-                        }
-                        if let Some(port) = server.port {
-                            port_link(ui, port);
-                        }
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(&server.name).truncate());
+    let response = ui
+        .scope(|ui| {
+            ui.style_mut().interaction.selectable_labels = false;
+            theme::card_frame()
+                .fill(fill)
+                .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        status_dot(ui, &status);
+                        // Lay the right-aligned items out first, then give the name
+                        // the remaining space, truncated — so a narrow sidebar elides
+                        // the name instead of drawing it under the port.
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if dup {
+                                let warn = ui.visuals().warn_fg_color;
+                                ui.colored_label(warn, "⚠").on_hover_text("duplicate port");
+                            }
+                            if let Some(port) = server.port {
+                                port_link(ui, port);
+                            }
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.add(egui::Label::new(&server.name).truncate());
+                                },
+                            );
                         });
                     });
-                });
-                metrics_row(ui, metrics, &status, &server.command);
-            });
-    });
+                    metrics_row(ui, metrics, &status, &server.command);
+                })
+                .response
+        })
+        .inner;
+    let response = ui
+        .interact(
+            response.rect,
+            ui.id().with("card_drag"),
+            egui::Sense::click_and_drag(),
+        )
+        .on_hover_cursor(egui::CursorIcon::Grab);
 
     card_context_menu(&response, server, active, action);
     // A drag ends as a release, not a click, so this fires only on a genuine
@@ -221,6 +227,7 @@ fn render_card(
         *action = Some(Action::ShowLog(server.id.clone()));
     }
     ui.add_space(6.0);
+    response
 }
 
 /// The right-click menu: lifecycle actions (Start, or Stop/Restart while
@@ -406,3 +413,7 @@ mod tests {
         assert_eq!(monogram("  "), "");
     }
 }
+
+#[cfg(test)]
+#[path = "server_list_drag_tests.rs"]
+mod drag_tests;
