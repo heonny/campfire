@@ -119,42 +119,65 @@ fn field(ui: &mut egui::Ui, value: &mut String, hint: &str, invalid: bool) -> eg
 }
 
 pub(super) fn bottom_bar(ui: &mut egui::Ui, state: &mut LogView, unseen: u64, events: &mut Events) {
-    ui.horizontal_wrapped(|ui| {
-        if ui
-            .selectable_label(state.search_open, "Find")
-            .on_hover_text("Find in output (Cmd/Ctrl+F)")
-            .clicked()
-        {
-            events.toggle_search = true;
-        }
-        if ui
-            .checkbox(&mut state.follow, "Follow")
-            .on_hover_text("Keep new output in view")
-            .changed()
-            && state.follow
-        {
-            events.catch_up = true;
-        }
-        ui.menu_button("More", |ui| {
-            ui.checkbox(&mut state.wrap, "Wrap long lines");
-            if ui.button("Scroll to top").clicked() {
+    ui.with_layout(
+        egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(true),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if tool(ui, icons::clear(), "Clear output", None).clicked() {
+                events.clear = true;
+            }
+            ui.add_space(8.0);
+            if tool(ui, icons::follow(), "Follow new output", Some(state.follow)).clicked() {
+                state.follow = !state.follow;
+                events.catch_up = state.follow;
+            }
+            if tool(ui, icons::scroll_bottom(), "Scroll to bottom", None).clicked() {
+                state.scroll_to = Some(ScrollTo::Bottom);
+            }
+            if tool(ui, icons::scroll_top(), "Scroll to top", None).clicked() {
                 state.scroll_to = Some(ScrollTo::Top);
                 state.follow = false;
-                ui.close();
             }
-            if ui.button("Scroll to bottom").clicked() {
-                state.scroll_to = Some(ScrollTo::Bottom);
-                ui.close();
+            ui.add_space(8.0);
+            if tool(ui, icons::wrap(), "Wrap long lines", Some(state.wrap)).clicked() {
+                state.wrap = !state.wrap;
             }
-            if ui.button("Clear output").clicked() {
-                events.clear = true;
-                ui.close();
+            if tool(
+                ui,
+                icons::search(),
+                "Find in output (Cmd/Ctrl+F)",
+                Some(state.search_open),
+            )
+            .clicked()
+            {
+                events.toggle_search = true;
             }
-        });
-        if unseen > 0 && ui.button(format!("↓ {unseen} new")).clicked() {
-            events.catch_up = true;
-        }
+            if unseen > 0
+                && ui
+                    .button(format!("↓ {unseen}"))
+                    .on_hover_text("New lines · scroll to bottom and follow")
+                    .clicked()
+            {
+                events.catch_up = true;
+            }
+        },
+    );
+}
+
+fn tool(
+    ui: &mut egui::Ui,
+    icon: egui::Image<'_>,
+    label: &str,
+    selected: Option<bool>,
+) -> egui::Response {
+    let response = ui
+        .add(icon_button(icon).selected(selected.unwrap_or(false)))
+        .on_hover_text(label);
+    response.widget_info(|| match selected {
+        Some(on) => egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, label),
+        None => egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label),
     });
+    response
 }
 
 pub(super) fn row_divider(ui: &mut egui::Ui) {

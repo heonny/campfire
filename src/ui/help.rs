@@ -21,7 +21,7 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                  half shows where it splits (up to 4 logs). Open log arranges new panes \
                  in two rows; narrow windows show one log at a time. Clicking a card \
                  shows its log in the focused pane instead.",
-                "Run / Stop live in the pane header; Restart is in More and the card's \
+                "Play / Stop, Restart, Edit, and Close icons live in the pane header. Project actions are also in the card's \
                  right-click menu. Stop waits up to 10 s for a graceful shutdown; \
                  press it again to force-quit.",
             ],
@@ -56,8 +56,8 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                  found, set Shell to `zsh -lic` so ~/.zshrc is sourced.",
                 "Click a project's :port to open localhost in the browser; the \
                  right-click menu also reveals the folder and copies the command.",
-                "Logs: Follow tails the output; More contains Wrap and Clear output. A \
-                 '↓ N new' chip appears when output arrives while scrolled up.",
+                "Log toolbar (bottom right): Find, Wrap, Top, Bottom, Follow, and Clear icons. Hover for \
+                 labels; highlighted icons are enabled. A '↓ N' badge shows new lines while scrolled up.",
                 "Workspaces are per session; projects recovered from a previous \
                  run open automatically.",
             ],

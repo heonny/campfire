@@ -1,6 +1,6 @@
 //! The active workspace's dock: an egui_tiles tree whose panes are server logs.
-//! Each pane is a white block with a header (status dot, name, status pill,
-//! lifecycle buttons, close) over the shared log view. Dragging a pane's title
+//! Each pane is a white block with a header (name, status, action icons)
+//! over the shared log view. Dragging a pane's title
 //! area rearranges panes (egui_tiles built-in preview + drop); the splits are
 //! resizable. Pane close and focus mutate the workspace directly; process
 //! operations go out through [`Action`]s.
@@ -107,7 +107,7 @@ struct DockBehavior<'a> {
     views: &'a mut HashMap<String, LogView>,
     focused: &'a mut Option<String>,
     action: &'a mut Option<Action>,
-    /// Panes whose × was clicked this frame; removed after `Tree::ui` returns.
+    /// Panes closed through their header; removed after `Tree::ui` returns.
     close: Vec<TileId>,
     /// Two or more panes are open, so the focused one is worth marking.
     multi: bool,
@@ -245,7 +245,7 @@ fn format_uptime(up: std::time::Duration) -> String {
     }
 }
 
-/// Keep process controls on a separate row so the project name retains its width.
+/// Group identity and metadata opposite a single row of process actions.
 #[allow(clippy::too_many_arguments)]
 fn pane_header(
     ui: &mut egui::Ui,
@@ -258,55 +258,19 @@ fn pane_header(
     action: &mut Option<Action>,
     close: &mut Vec<TileId>,
 ) -> egui::Response {
-    let title = ui
-        .horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let button = ui
-                    .add(icon_button(icons::close()))
-                    .on_hover_text("Close this log view");
-                button.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button,
-                        true,
-                        format!("Close {} log view", server.name),
-                    )
-                });
-                if button.clicked() {
-                    close.push(tile_id);
-                }
-                ui.menu_button("More", |ui| {
-                    if active && ui.button("Restart project").clicked() {
-                        *action = Some(Action::Restart(server.id.clone()));
-                        ui.close();
-                    }
-                    if ui.button("Edit project…").clicked() {
-                        *action = Some(Action::OpenEdit(server.id.clone()));
-                        ui.close();
-                    }
-                    if let Some(up) = uptime {
-                        ui.weak(format!("Uptime: {}", format_uptime(up)));
-                    }
-                    if recovered {
-                        ui.weak("Recovered session");
-                    }
-                });
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.add(
-                        egui::Label::new(egui::RichText::new(&server.name).strong())
-                            .truncate()
-                            .selectable(false)
-                            .sense(egui::Sense::click_and_drag()),
-                    )
-                    .on_hover_text(&server.name)
-                    .on_hover_cursor(egui::CursorIcon::Grab)
-                })
-                .inner
-            })
-            .inner
-        })
-        .inner;
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if header_icon(ui, icons::close(), "Close log view").clicked() {
+                close.push(tile_id);
+            }
+            ui.add_space(4.0);
+            if header_icon(ui, icons::edit(), "Edit project").clicked() {
+                *action = Some(Action::OpenEdit(server.id.clone()));
+            }
+            if active && header_icon(ui, icons::restart(), "Restart project").clicked() {
+                *action = Some(Action::Restart(server.id.clone()));
+            }
             let label = if matches!(status, Status::Stopping) {
                 "Force stop"
             } else if active {
@@ -314,11 +278,12 @@ fn pane_header(
             } else {
                 "Run"
             };
-            if ui
-                .button(label)
-                .on_hover_text(format!("{label} {}", server.name))
-                .clicked()
-            {
+            let icon = if active {
+                icons::stop()
+            } else {
+                icons::start()
+            };
+            if header_icon(ui, icon, label).clicked() {
                 *action = Some(if active {
                     Action::Stop(server.id.clone())
                 } else {
@@ -326,24 +291,56 @@ fn pane_header(
                 });
             }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                status_dot(ui, status).on_hover_text(status_text(status));
-                let label = match status {
-                    Status::Stopped => "Stopped",
-                    Status::Starting => "Starting",
-                    Status::Running => "Running",
-                    Status::Stopping => "Stopping",
-                    Status::Crashed { .. } => "Crashed",
-                };
-                ui.label(egui::RichText::new(label).small());
-                if ui.available_width() > 60.0
-                    && let Some(port) = server.port
-                {
-                    port_link(ui, port);
-                }
-            });
-        });
-    });
-    title
+                ui.vertical(|ui| {
+                    let title = ui
+                        .add(
+                            egui::Label::new(egui::RichText::new(&server.name).strong())
+                                .truncate()
+                                .selectable(false)
+                                .sense(egui::Sense::click_and_drag()),
+                        )
+                        .on_hover_text(&server.name)
+                        .on_hover_cursor(egui::CursorIcon::Grab);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        let mut details = status_text(status);
+                        if let Some(up) = uptime {
+                            details.push_str(&format!(" · Uptime: {}", format_uptime(up)));
+                        }
+                        if recovered {
+                            details.push_str(" · Recovered session");
+                        }
+                        status_dot(ui, status).on_hover_text(&details);
+                        let label = match status {
+                            Status::Stopped => "Stopped",
+                            Status::Starting => "Starting",
+                            Status::Running => "Running",
+                            Status::Stopping => "Stopping",
+                            Status::Crashed { .. } => "Crashed",
+                        };
+                        ui.weak(egui::RichText::new(label).small())
+                            .on_hover_text(details);
+                        if ui.available_width() > 60.0
+                            && let Some(port) = server.port
+                        {
+                            port_link(ui, port);
+                        }
+                    });
+                    title
+                })
+                .inner
+            })
+            .inner
+        })
+        .inner
+    })
+    .inner
+}
+
+fn header_icon(ui: &mut egui::Ui, icon: egui::Image<'_>, label: &str) -> egui::Response {
+    let response = ui.add(icon_button(icon)).on_hover_text(label);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    response
 }
 
 #[cfg(test)]

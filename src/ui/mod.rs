@@ -118,6 +118,11 @@ pub struct IconButton<'a> {
 }
 
 impl<'a> IconButton<'a> {
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.button = self.button.selected(selected).frame_when_inactive(selected);
+        self
+    }
+
     pub fn min_size(mut self, size: egui::Vec2) -> Self {
         self.button = self.button.min_size(size);
         self

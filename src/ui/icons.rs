@@ -36,3 +36,47 @@ pub fn sidebar() -> egui::Image<'static> {
 pub fn close() -> egui::Image<'static> {
     sized(egui::include_image!("../../assets/icons/x.svg"))
 }
+
+pub fn start() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/play.svg"))
+}
+
+pub fn stop() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/stop.svg"))
+}
+
+pub fn restart() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/rotate-cw.svg"))
+}
+
+pub fn edit() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/pencil.svg"))
+}
+
+pub fn search() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/search.svg"))
+}
+
+pub fn follow() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/chevrons-down.svg"))
+}
+
+pub fn wrap() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/wrap-text.svg"))
+}
+
+pub fn scroll_top() -> egui::Image<'static> {
+    sized(egui::include_image!(
+        "../../assets/icons/arrow-up-to-line.svg"
+    ))
+}
+
+pub fn scroll_bottom() -> egui::Image<'static> {
+    sized(egui::include_image!(
+        "../../assets/icons/arrow-down-to-line.svg"
+    ))
+}
+
+pub fn clear() -> egui::Image<'static> {
+    sized(egui::include_image!("../../assets/icons/eraser.svg"))
+}
