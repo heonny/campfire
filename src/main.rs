@@ -6,6 +6,7 @@
 
 mod ansi;
 mod fs_util;
+mod glass;
 mod gradle;
 mod metrics;
 mod model;
@@ -64,6 +65,7 @@ fn main() -> eframe::Result<()> {
     }
     let options = eframe::NativeOptions {
         viewport,
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
 
@@ -73,6 +75,7 @@ fn main() -> eframe::Result<()> {
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             theme::setup(&cc.egui_ctx);
+            glass::init(cc)?;
             Ok(Box::new(CampfireApp::new(cc.egui_ctx.clone())))
         }),
     )
@@ -371,8 +374,12 @@ impl CampfireApp {
             return;
         };
         let response = egui::Modal::new(egui::Id::new("confirm_delete"))
-            .frame(theme::modal_frame())
-            .show(ctx, |ui| ui::confirm::show_delete(ui, &name));
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                glass::modal()
+                    .show(ui, |ui| ui::confirm::show_delete(ui, &name))
+                    .inner
+            });
         let outcome = if response.should_close() {
             ui::confirm::ConfirmOutcome::Cancel // click-away / Esc = cancel
         } else {
@@ -635,9 +642,8 @@ impl eframe::App for CampfireApp {
             action = Some(Action::ToggleSidebar);
         }
 
-        // Every section is a white rounded block on the grey canvas: the panel
-        // frames carry the canvas fill plus the outer margins (12 at the window
-        // edge, 4 + 4 = 8 between blocks), and their divider lines are off.
+        glass::show_backdrop(ui);
+        // Transparent panel frames preserve the shared backdrop between blocks.
         // There is no top bar — the window title already says "Campfire", so
         // the running count and help live in the sidebar header instead.
         // Snapshot the active workspace's focus into a local, so `View`
@@ -734,9 +740,13 @@ impl eframe::App for CampfireApp {
                     .and_then(|id| self.running.get(id))
                     .is_some_and(|p| !p.is_terminal());
                 let response = egui::Modal::new(egui::Id::new("server_editor"))
-                    .frame(theme::modal_frame())
+                    .frame(egui::Frame::NONE)
                     .show(ui.ctx(), |ui| {
-                        ui::editor::show(ui, form, &self.servers, self_running)
+                        glass::modal()
+                            .show(ui, |ui| {
+                                ui::editor::show(ui, form, &self.servers, self_running)
+                            })
+                            .inner
                     });
                 let dismissed = response.should_close();
                 outcome = response.inner;
@@ -749,8 +759,8 @@ impl eframe::App for CampfireApp {
 
         if self.show_help {
             let response = egui::Modal::new(egui::Id::new("help"))
-                .frame(theme::modal_frame())
-                .show(ui.ctx(), ui::help::show);
+                .frame(egui::Frame::NONE)
+                .show(ui.ctx(), |ui| glass::modal().show(ui, ui::help::show).inner);
             if response.should_close() || response.inner {
                 self.show_help = false;
             }

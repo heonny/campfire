@@ -48,6 +48,10 @@ install.
 
 ## Build and run
 
+The sidebar, dialogs, and notifications use `egui_glass` with the wgpu renderer.
+They sample a static gradient uploaded once at startup; log panes stay opaque
+for readability. A wgpu-compatible graphics adapter is required.
+
 ```sh
 # run in development
 cargo run

@@ -16,6 +16,7 @@ dotenvy = "0.15.7"
 eframe = "0.35.0"
 egui = "0.35.0"
 egui_extras = { version = "0.35.0", features = ["svg"] }
+egui_glass = "0.1.5"
 egui_tiles = "0.16.0"
 # Log find/grep matching (case / whole-word / regex). regex-lite over regex:
 # no aho-corasick/SIMD deps, so it keeps the binary small — plenty fast for

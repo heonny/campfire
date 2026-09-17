@@ -584,6 +584,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_extras",
+ "egui_glass",
  "egui_tiles",
  "libc",
  "regex-lite",
@@ -990,6 +991,18 @@ dependencies = [
  "mime_guess2",
  "profiling",
  "resvg",
+]
+
+[[package]]
+name = "egui_glass"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8180a693248a6c726c0f12f7a948056d94a656a38a6d752917e4e02f4c55309c"
+dependencies = [
+ "bytemuck",
+ "egui",
+ "egui-wgpu",
+ "wgpu",
 ]
 
 [[package]]

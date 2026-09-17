@@ -36,68 +36,52 @@ pub fn show(
         .order(egui::Order::Foreground)
         .interactable(false)
         .show(ctx, |ui| {
-            egui::Frame::new()
-                .fill(egui::Color32::from_rgba_unmultiplied(
-                    0xFF, 0xFF, 0xFF, 0xF4,
-                ))
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_black_alpha(18)))
-                .corner_radius(egui::CornerRadius::same(22))
-                .inner_margin(egui::Margin::symmetric(14, 12))
-                .shadow(egui::Shadow {
-                    offset: [0, 10],
-                    blur: 28,
-                    spread: 0,
-                    color: egui::Color32::from_black_alpha(38),
-                })
-                .show(ui, |ui| {
-                    // An Area is unbounded, so every row here must be given
-                    // its width explicitly or it stretches to the window.
-                    let inner = WIDTH - 28.0;
-                    ui.set_width(inner);
-                    ui.set_max_width(inner);
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
-                        let column = inner - ICON - 12.0;
-                        match icon {
-                            Some(tex) => {
-                                ui.add(
-                                    egui::Image::from_texture(tex)
-                                        .fit_to_exact_size(egui::Vec2::splat(ICON))
-                                        .corner_radius(9.0),
-                                );
-                            }
-                            None => {
-                                let (rect, _) = ui.allocate_exact_size(
-                                    egui::Vec2::splat(ICON),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter().rect_filled(
-                                    rect,
-                                    egui::CornerRadius::same(9),
-                                    theme::ACCENT,
-                                );
-                            }
+            crate::glass::banner().show(ui, |ui| {
+                // An Area is unbounded, so every row here must be given
+                // its width explicitly or it stretches to the window.
+                let inner = WIDTH - 28.0;
+                ui.set_width(inner);
+                ui.set_max_width(inner);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    let column = inner - ICON - 12.0;
+                    match icon {
+                        Some(tex) => {
+                            ui.add(
+                                egui::Image::from_texture(tex)
+                                    .fit_to_exact_size(egui::Vec2::splat(ICON))
+                                    .corner_radius(9.0),
+                            );
                         }
-                        ui.vertical(|ui| {
-                            ui.set_width(column);
+                        None => {
+                            let (rect, _) = ui
+                                .allocate_exact_size(egui::Vec2::splat(ICON), egui::Sense::hover());
+                            ui.painter().rect_filled(
+                                rect,
+                                egui::CornerRadius::same(9),
+                                theme::ACCENT,
+                            );
+                        }
+                    }
+                    ui.vertical(|ui| {
+                        ui.set_width(column);
+                        ui.set_max_width(column);
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.horizontal(|ui| {
                             ui.set_max_width(column);
-                            ui.spacing_mut().item_spacing.y = 2.0;
-                            ui.horizontal(|ui| {
-                                ui.set_max_width(column);
-                                ui.add(
-                                    egui::Label::new(egui::RichText::new(title).strong())
-                                        .truncate(),
-                                );
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.label(egui::RichText::new("now").small().weak());
-                                    },
-                                );
-                            });
-                            ui.add(egui::Label::new(text).wrap());
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(title).strong()).truncate(),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(egui::RichText::new("now").small().weak());
+                                },
+                            );
                         });
+                        ui.add(egui::Label::new(text).wrap());
                     });
                 });
+            });
         });
 }

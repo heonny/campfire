@@ -11,9 +11,9 @@ use egui::{Color32, CornerRadius, Margin, Stroke, Visuals, vec2};
 pub const ACCENT: Color32 = Color32::from_rgb(0xF9, 0x73, 0x16);
 pub const ACCENT_TEXT: Color32 = Color32::from_rgb(0xC2, 0x41, 0x0C);
 pub const ACCENT_WEAK: Color32 = Color32::from_rgb(0xFF, 0xE4, 0xCF);
-/// A whisper of the accent for a focused card's fill — calmer than
-/// `ACCENT_WEAK`, which is reserved for transient emphasis (drop previews).
-pub const ACCENT_TINT: Color32 = Color32::from_rgb(0xFF, 0xF5, 0xEE);
+/// Cool selection colours distinguish focused cards from the warm glass backdrop.
+pub const SELECTED_CARD_FILL: Color32 = Color32::from_rgb(0xE6, 0xF3, 0xFF);
+pub const SELECTED_CARD_BORDER: Color32 = Color32::from_rgb(0xB8, 0xD9, 0xF3);
 
 /// Destructive-action fill (the confirm dialog's Delete button). A muted brick
 /// red — the same hue as the crashed-status color — dark enough that white text
@@ -35,10 +35,9 @@ pub const BUTTON_HOVER_FILL: Color32 = Color32::from_rgb(0xE6, 0xEA, 0xF1);
 /// Sections separate by surface contrast, not divider lines.
 pub const CANVAS_FILL: Color32 = Color32::from_rgb(0xF3, 0xF5, 0xF9);
 
-/// A panel frame that only paints the canvas: no chrome, just the grey fill
-/// and the given margin (the gap around the section blocks inside).
+/// Layout margins over the shared glass backdrop.
 pub fn canvas_frame(margin: Margin) -> egui::Frame {
-    egui::Frame::new().fill(CANVAS_FILL).inner_margin(margin)
+    egui::Frame::new().inner_margin(margin)
 }
 
 /// Run `show` (a resizable panel) with the panel resize indicator restyled as

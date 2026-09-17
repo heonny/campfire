@@ -28,7 +28,7 @@ pub fn show(
     // content_margin): the cards keep their width, but the floating scroll bar
     // now rides in that empty gutter instead of on top of the cards.
     let gutter = 12.0;
-    theme::block_frame()
+    crate::glass::sidebar()
         .inner_margin(egui::Margin {
             left: 12,
             right: 0,
@@ -168,13 +168,16 @@ fn render_card(
     let dup = server.port.is_some_and(|p| view.dup_ports.contains(&p));
     let focused = view.focused == Some(server.id.as_str());
 
-    // The focused card reads through a whisper of accent tint alone — no
-    // stripes or accent borders; the hairline stays neutral everywhere. An
-    // open-but-unfocused pane is shown by its tab/pane, not marked here.
+    // Only the focused pane gets a selected card; other open panes stay neutral.
     let fill = if focused {
-        theme::ACCENT_TINT
+        theme::SELECTED_CARD_FILL
     } else {
         theme::CARD_FILL
+    };
+    let border = if focused {
+        theme::SELECTED_CARD_BORDER
+    } else {
+        theme::CARD_BORDER
     };
 
     let response = ui
@@ -182,7 +185,7 @@ fn render_card(
             ui.style_mut().interaction.selectable_labels = false;
             theme::card_frame()
                 .fill(fill)
-                .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
+                .stroke(egui::Stroke::new(1.0, border))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
@@ -226,7 +229,6 @@ fn render_card(
     if response.clicked() {
         *action = Some(Action::ShowLog(server.id.clone()));
     }
-    ui.add_space(6.0);
     response
 }
 
