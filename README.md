@@ -41,7 +41,13 @@ install.
 - **Local and private** — everything runs on your machine; config is a plain
   TOML file
 
-## Requirements
+## Download
+
+Download the macOS Apple Silicon or Windows x64 ZIP from [Releases](https://github.com/heonny/campfire/releases/latest). Extract it, then move `bundle/Campfire.app` to Applications on macOS or run `campfire.exe` on Windows. Rust is only needed to build from source.
+
+The macOS binary requires macOS 11 or later. Downloads are not signed with a distribution certificate or notarized, so your OS may block or warn on first launch. SHA-256 checksums are included in each release.
+
+## Requirements (building from source)
 
 - [Rust](https://www.rust-lang.org/tools/install) (stable)
 - macOS or Windows

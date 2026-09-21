@@ -41,7 +41,13 @@
 - **크로스 플랫폼** — macOS와 Windows
 - **로컬·프라이빗** — 모든 것이 내 컴퓨터에서 실행되고, 설정은 평범한 TOML 파일
 
-## 요구 사항
+## 다운로드
+
+[Releases](https://github.com/heonny/campfire/releases/latest)에서 macOS Apple Silicon 또는 Windows x64 ZIP을 받으세요. 압축을 푼 뒤 macOS는 `bundle/Campfire.app`을 Applications로 옮기고, Windows는 `campfire.exe`를 실행하면 됩니다. Rust는 소스에서 빌드할 때만 필요합니다.
+
+macOS 배포본은 macOS 11 이상이 필요합니다. 배포 인증서 서명·공증이 없어 첫 실행 시 OS가 차단하거나 경고할 수 있습니다. 각 릴리즈에 SHA-256 체크섬을 제공합니다.
+
+## 요구 사항 (소스 빌드)
 
 - [Rust](https://www.rust-lang.org/tools/install) (stable)
 - macOS 또는 Windows

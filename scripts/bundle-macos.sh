@@ -46,7 +46,7 @@ VERSION="$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
 
 # --- 1. build the release binary -----------------------------------------
 echo "==> cargo build --release"
-cargo build --release
+cargo build --release --locked
 
 # --- 2. generate AppIcon.icns from the source PNG ------------------------
 echo "==> generating icon from $SRC_ICON"
@@ -82,7 +82,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>       <string>APPL</string>
     <key>CFBundleExecutable</key>        <string>$BIN_NAME</string>
     <key>CFBundleIconFile</key>          <string>AppIcon</string>
-    <key>LSMinimumSystemVersion</key>    <string>10.15</string>
+    <key>LSMinimumSystemVersion</key>    <string>11.0</string>
     <key>NSHighResolutionCapable</key>   <true/>
     <key>LSApplicationCategoryType</key> <string>public.app-category.developer-tools</string>
 </dict>
