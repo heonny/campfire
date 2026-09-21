@@ -107,7 +107,10 @@ mod home_tests {
     fn home_collapses_and_expands_back() {
         let home = home_dir().expect("home dir");
         let inside = home.join("work").join("api");
-        assert_eq!(collapse_home(&inside), "~/work/api");
+        let collapsed = collapse_home(&inside);
+        let relative = Path::new("work").join("api");
+        assert_eq!(collapsed, format!("~/{}", relative.display()));
+        assert_eq!(expand_home(&collapsed), inside);
         assert_eq!(expand_home("~/work/api"), inside);
         assert_eq!(collapse_home(&home), "~");
         assert_eq!(expand_home("~"), home);
