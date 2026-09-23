@@ -38,11 +38,18 @@ pub struct GradleProject {
     pub port_hint: Option<u16>,
 }
 
-/// The shell command that runs `task` through the Gradle wrapper, matching the
-/// Spring Boot preset's `./gradlew` convention so the picker and the preset
-/// default agree.
-pub fn task_command(task: &str) -> String {
-    format!("./gradlew {task}")
+/// Prefer a local platform wrapper; fall back to Gradle on PATH.
+pub fn task_command(dir: &Path, task: &str) -> String {
+    #[cfg(windows)]
+    let (wrapper_file, wrapper_command) = ("gradlew.bat", ".\\gradlew.bat");
+    #[cfg(not(windows))]
+    let (wrapper_file, wrapper_command) = ("gradlew", "./gradlew");
+    let runner = if dir.join(wrapper_file).is_file() {
+        wrapper_command
+    } else {
+        "gradle"
+    };
+    format!("{runner} {task}")
 }
 
 /// Locate a conventional build script directly under `dir`. Prefers the Groovy
@@ -79,10 +86,20 @@ pub fn parse_plugins(text: &str) -> Vec<String> {
     let mut ids = Vec::new();
 
     if let Some(block) = plugins_block_inner(&cleaned) {
-        for line in block.lines() {
-            if let Some(id) = plugin_from_block_line(line) {
-                push_unique(&mut ids, id);
+        let mut declaration = String::new();
+        for line in block.split(['\n', ';']) {
+            let line = line.trim();
+            if starts_plugin_declaration(line) {
+                if let Some(id) = plugin_from_block_line(&declaration) {
+                    push_unique(&mut ids, id);
+                }
+                declaration.clear();
             }
+            declaration.push(' ');
+            declaration.push_str(line);
+        }
+        if let Some(id) = plugin_from_block_line(&declaration) {
+            push_unique(&mut ids, id);
         }
     }
 
@@ -158,10 +175,12 @@ fn push_unique(ids: &mut Vec<String>, id: String) {
     }
 }
 
-/// Interpret a single line inside a `plugins { … }` block as a plugin id.
+/// Interpret a plugin declaration, including continuation lines such as `apply false`.
 fn plugin_from_block_line(line: &str) -> Option<String> {
     let line = line.trim();
-    if line.is_empty() {
+    let normalized = line.replace(['(', ')'], " ");
+    let words: Vec<_> = normalized.split_whitespace().collect();
+    if line.is_empty() || words.windows(2).any(|pair| pair == ["apply", "false"]) {
         return None;
     }
     // `kotlin("jvm")` -> `org.jetbrains.kotlin.jvm`
@@ -191,6 +210,18 @@ fn plugin_from_block_line(line: &str) -> Option<String> {
     BARE.contains(&token).then(|| token.to_string())
 }
 
+fn starts_plugin_declaration(line: &str) -> bool {
+    line.starts_with("id ")
+        || line.starts_with("id(")
+        || line.starts_with("id\t")
+        || line.starts_with("kotlin(")
+        || line.starts_with("alias(")
+        || matches!(
+            line.trim_matches('`'),
+            "java" | "java-library" | "application" | "war" | "groovy" | "scala" | "base"
+        )
+}
+
 /// The contents of the first single- or double-quoted string in `s`, if any.
 fn first_quoted(s: &str) -> Option<&str> {
     let bytes = s.as_bytes();
@@ -201,10 +232,13 @@ fn first_quoted(s: &str) -> Option<&str> {
     Some(&rest[..end])
 }
 
-/// Drop `//` line comments so they don't confuse plugin/block parsing. Plugin
+/// Drop comments so they don't confuse plugin/block parsing. Plugin
 /// ids never contain `//`, so cutting at the first occurrence is safe here.
 fn strip_line_comments(text: &str) -> String {
-    text.lines()
+    let block_comments = regex_lite::Regex::new(r"(?s)/\*.*?\*/").expect("static comment pattern");
+    block_comments
+        .replace_all(text, " ")
+        .lines()
         .map(|line| match line.find("//") {
             Some(i) => &line[..i],
             None => line,
@@ -397,7 +431,14 @@ mod tests {
 
     #[test]
     fn task_command_uses_wrapper() {
-        assert_eq!(task_command("bootRun"), "./gradlew bootRun");
+        let dir = scratch("wrapper");
+        std::fs::write(dir.join("gradlew"), "").unwrap();
+        std::fs::write(dir.join("gradlew.bat"), "").unwrap();
+        #[cfg(unix)]
+        assert_eq!(task_command(&dir, "bootRun"), "./gradlew bootRun");
+        #[cfg(windows)]
+        assert_eq!(task_command(&dir, "bootRun"), ".\\gradlew.bat bootRun");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

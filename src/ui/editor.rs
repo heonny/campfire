@@ -4,6 +4,7 @@
 //! parses and validates them into a [`ServerConfig`], and [`show`] renders the
 //! form and reports what the user did via [`EditorOutcome`].
 
+mod detection;
 mod form;
 pub use form::show;
 mod picker;
@@ -43,6 +44,12 @@ pub struct EditorForm {
     /// refreshed lazily by [`EditorForm::refresh_detection`]. Feeds the Scripts
     /// picker; never persisted into [`ServerConfig`].
     detected: Option<NodeProject>,
+    detected_cargo: Option<crate::cargo_project::CargoProject>,
+    detected_go: Option<crate::go_project::GoProject>,
+    auto_name: Option<String>,
+    auto_command: Option<String>,
+    detection_note: String,
+    cargo_query: String,
     /// The `cwd` value detection last ran for, so `package.json` is re-read only
     /// when the path actually changes — not on every frame.
     detected_for: String,
@@ -53,8 +60,8 @@ pub struct EditorForm {
     /// Probed on change only (a bind per frame would be wasteful).
     port_checked: String,
     port_in_use: bool,
-    /// Path to the Gradle build script feeding the Tasks picker (Spring Boot
-    /// preset only). Auto-located under `cwd`, but user-overridable to point at a
+    /// Path to the Gradle build script feeding the Tasks picker.
+    /// Auto-located under `cwd`, but user-overridable to point at a
     /// specific `build.gradle`. Transient UI state — never persisted.
     gradle_file: String,
     /// The last value auto-located into `gradle_file`. Lets `refresh_detection`
@@ -92,6 +99,12 @@ impl EditorForm {
             shell: String::new(),
             error: None,
             detected: None,
+            detected_cargo: None,
+            detected_go: None,
+            auto_name: Some(String::new()),
+            auto_command: Some(String::new()),
+            detection_note: String::new(),
+            cargo_query: String::new(),
             detected_for: String::new(),
             cwd_exists: true,
             port_checked: String::new(),
@@ -134,6 +147,12 @@ impl EditorForm {
             shell: config.shell.clone().unwrap_or_default(),
             error: None,
             detected: None,
+            detected_cargo: None,
+            detected_go: None,
+            auto_name: None,
+            auto_command: None,
+            detection_note: String::new(),
+            cargo_query: String::new(),
             detected_for: String::new(),
             cwd_exists: true,
             port_checked: String::new(),
@@ -157,6 +176,7 @@ impl EditorForm {
     /// Overwrite command/port with a preset's defaults (invoked when the user
     /// picks a preset from the dropdown).
     fn apply_preset(&mut self, preset: Preset) {
+        self.auto_command = None;
         self.preset = preset;
         self.command = preset.default_command().to_string();
         self.port = preset
@@ -169,40 +189,6 @@ impl EditorForm {
         if preset == Preset::SpringBoot {
             self.detected_for.clear();
         }
-    }
-
-    /// Re-read `package.json` when `cwd` changed since the last check. Cheap to
-    /// call every frame: the filesystem is touched only when the path differs.
-    /// For the Spring Boot preset it also auto-locates a Gradle build file under
-    /// the new `cwd` — but only when the field is empty or still holds the last
-    /// auto-located value, so a manual Browse is never silently clobbered.
-    fn refresh_detection(&mut self) {
-        if self.cwd.trim() == self.detected_for {
-            return;
-        }
-        let cwd = self.cwd.trim().to_string();
-        let cwd_path = expand_home(&cwd);
-        self.cwd_exists = cwd.is_empty() || cwd_path.is_dir();
-        self.detected = if cwd.is_empty() {
-            None
-        } else {
-            detect_node_project(&cwd_path)
-        };
-        if self.preset == Preset::SpringBoot
-            && (self.gradle_file.trim().is_empty() || self.gradle_file == self.gradle_file_auto)
-        {
-            let located = (!cwd.is_empty())
-                .then(|| gradle::find_build_file(&cwd_path))
-                .flatten()
-                .map(|p| collapse_home(&p))
-                .unwrap_or_default();
-            self.gradle_file = located.clone();
-            self.gradle_file_auto = located;
-        }
-        self.env_candidates = session::env_candidates(&cwd_path);
-        self.script_query.clear();
-        self.task_query.clear();
-        self.detected_for = cwd;
     }
 
     /// Re-parse the Gradle build file when its path changed. Cheap to call every
@@ -378,3 +364,12 @@ fn default_shell_display() -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod detection_tests;
+
+#[cfg(test)]
+mod form_tests;
+
+#[cfg(test)]
+mod go_tests;

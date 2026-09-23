@@ -29,7 +29,7 @@ pub fn show(
     if self_running {
         ui.weak("Changes apply the next time this project starts or restarts.");
     } else {
-        ui.weak("Choose a folder and configure the command to run.");
+        ui.weak("Choose a folder to detect its default run command.");
     }
     ui.add_space(8.0);
     let body_height = (ui.ctx().content_rect().height() - 235.0).clamp(160.0, 520.0);
@@ -49,6 +49,9 @@ pub fn show(
                 );
                 if !cwd_focused {
                     form.refresh_detection();
+                }
+                if !form.detection_note.is_empty() {
+                    ui.add(egui::Label::new(&form.detection_note).wrap());
                 }
                 ui.horizontal(|ui| {
                     ui.label("Preset");
@@ -179,6 +182,13 @@ fn input(ui: &mut egui::Ui, form: &mut EditorForm, field: Field, label: &str, hi
         response.scroll_to_me(Some(egui::Align::Center));
         form.focus_error = false;
     }
+    if response.changed() {
+        match field {
+            Field::Name => form.auto_name = None,
+            Field::Command => form.auto_command = None,
+            _ => {}
+        }
+    }
     if let Some(error) = form.field_error(field) {
         ui.colored_label(crate::theme::DANGER, error);
     }
@@ -187,7 +197,13 @@ fn input(ui: &mut egui::Ui, form: &mut EditorForm, field: Field, label: &str, hi
 }
 
 fn commands(ui: &mut egui::Ui, form: &mut EditorForm) {
-    if form.preset == Preset::SpringBoot {
+    gradle_commands(ui, form);
+    node_commands(ui, form);
+    cargo_commands(ui, form);
+}
+
+fn gradle_commands(ui: &mut egui::Ui, form: &mut EditorForm) {
+    if form.preset == Preset::SpringBoot || !form.gradle_file.is_empty() {
         ui.label("Gradle build file");
         let (focused, browse) = path_input(ui, &mut form.gradle_file, "build.gradle");
         if browse {
@@ -206,10 +222,9 @@ fn commands(ui: &mut egui::Ui, form: &mut EditorForm) {
             && !project.tasks.is_empty()
         {
             ui.label("Gradle task");
-            let current = project
-                .tasks
-                .iter()
-                .find(|t| form.command == crate::gradle::task_command(&t.name));
+            let current = project.tasks.iter().find(|t| {
+                form.command == crate::gradle::task_command(&expand_home(&form.cwd), &t.name)
+            });
             let choices: Vec<_> = project
                 .tasks
                 .iter()
@@ -222,13 +237,20 @@ fn commands(ui: &mut egui::Ui, form: &mut EditorForm) {
                 &mut form.task_query,
                 &choices,
             ) {
-                form.command = crate::gradle::task_command(&project.tasks[index].name);
+                form.command = crate::gradle::task_command(
+                    &expand_home(&form.cwd),
+                    &project.tasks[index].name,
+                );
+                form.auto_command = None;
                 if form.port.trim().is_empty() {
                     form.port = project.port_hint.map(|p| p.to_string()).unwrap_or_default();
                 }
             }
         }
     }
+}
+
+fn node_commands(ui: &mut egui::Ui, form: &mut EditorForm) {
     if let Some(project) = &form.detected
         && !project.scripts.is_empty()
     {
@@ -250,9 +272,42 @@ fn commands(ui: &mut egui::Ui, form: &mut EditorForm) {
             &choices,
         ) {
             form.command = project.manager.run(&project.scripts[index].0);
+            form.auto_command = None;
             if form.port.trim().is_empty() {
                 form.port = project.port_hint.map(|p| p.to_string()).unwrap_or_default();
             }
+        }
+    }
+}
+
+fn cargo_commands(ui: &mut egui::Ui, form: &mut EditorForm) {
+    if let Some(project) = &form.detected_cargo
+        && !project.commands.is_empty()
+    {
+        ui.label("Cargo binary");
+        let choices: Vec<_> = project
+            .commands
+            .iter()
+            .map(|(name, command)| (name.as_str(), command.as_str()))
+            .collect();
+        let current = project
+            .commands
+            .iter()
+            .find(|(_, command)| command == &form.command)
+            .or_else(|| {
+                (project.commands.len() == 1
+                    && project.default_command.as_deref() == Some(form.command.as_str()))
+                .then(|| &project.commands[0])
+            });
+        if let Some(index) = picker::show(
+            ui,
+            "cargo-binaries",
+            current.map(|(name, _)| name.as_str()),
+            &mut form.cargo_query,
+            &choices,
+        ) {
+            form.command = project.commands[index].1.clone();
+            form.auto_command = None;
         }
     }
 }

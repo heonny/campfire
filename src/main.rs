@@ -5,8 +5,10 @@
 //! lives in the `ui` module; this file owns state and applies actions.
 
 mod ansi;
+mod cargo_project;
 mod fs_util;
 mod glass;
+mod go_project;
 mod gradle;
 mod metrics;
 mod model;

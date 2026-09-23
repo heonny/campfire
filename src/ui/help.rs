@@ -15,8 +15,9 @@ pub fn show(ui: &mut egui::Ui) -> bool {
         bullets(
             ui,
             &[
-                "Press + to add a project: pick a preset, choose the working \
-                 directory, set the command. Env vars and a .env file are optional.",
+                "Press + and choose a project folder. Node, Gradle, Cargo, and Go projects \
+                 can fill their default command automatically. Review it or select a \
+                 script / binary, then save. Presets and manual commands are also available.",
                 "Drag a card into the log area to open its log; the highlighted \
                  half shows where it splits (up to 4 logs). Open log arranges new panes \
                  in two rows; narrow windows show one log at a time. Clicking a card \

@@ -19,6 +19,10 @@ install.
   `./gradlew bootRun`, `go run .`, …)
 - **Presets** — Spring Boot, Flink, Next.js, Go, or a blank Custom entry that
   pre-fill the command and a default port
+- **Folder detection** — selecting a folder fills its name and default command:
+  Node `dev` / `start` scripts with npm, pnpm, Yarn, or Bun; Gradle `bootRun` / `run`;
+  Cargo binaries; and Go modules with a root main package (`go run .`).
+  Edited commands and saved projects are preserved
 - **Per-server config** — working directory, port, environment variables, a
   `.env` file, and an optional shell override
 - **Lifecycle** — start / stop / restart with whole-process-tree shutdown
@@ -68,14 +72,24 @@ cargo build --release
 
 ## Usage
 
-1. Click **+ Add** and pick a preset (or Custom).
-2. Set the **working directory** (Browse…) and the **command** to run.
+1. Click **+ Add** and choose the **working directory** (Browse…).
+2. Review the detected name and command. Choose a script / binary when there
+   are several targets, or enter a command / pick a preset manually.
 3. Optionally set a port, environment variables, or a `.env` file.
 4. Select the server and press **Start**. Watch the logs; **Stop** or
    **Restart** as needed.
 
 The in-app **Help** button has the rest. A few notes:
 
+- **Detection** — reads local files only; it does not install dependencies or
+  run Gradle/Cargo during registration. Gradle uses the local platform wrapper,
+  falling back to `gradle` on PATH. Cargo respects `default-run`, explicit bins,
+  and `autobins`; feature-gated targets require a manual command. Workspace members,
+  Gradle subprojects, plugin aliases, and custom tasks are not discovered recursively:
+  choose the runnable package folder or enter the command. Detection does not set
+  a port. Go detection skips test files, build-tagged and OS/architecture-specific
+  entry points; commands under `cmd/` require manual input. Project runtimes and
+  dependencies must already be available to launch.
 - **Ports** — the port you set is injected as both `PORT` (Node/Next) and
   `SERVER_PORT` (Spring Boot). If your framework reads neither, put the port in
   the command (e.g. `--server.port=8080`) or an env var.
