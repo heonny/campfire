@@ -44,13 +44,16 @@ pub(super) fn render_body(
         return;
     }
 
-    // Top/Bottom jump to an edge; a find-nav target is scrolled into view as its
-    // row renders; otherwise tail the bottom while following.
-    let (offset, stick, match_row) = match scroll_to {
-        Some(ScrollTo::Top) => (Some(0.0), false, None),
-        Some(ScrollTo::Bottom) => (Some(f32::MAX), false, None),
-        Some(ScrollTo::Match(row)) => (None, false, Some(row)),
-        None => (None, follow, None),
+    // Top sets the offset outright; Bottom and a find-nav target scroll to a
+    // cursor/row as it renders; otherwise tail the bottom while following.
+    // Bottom must not pass `f32::MAX` as an offset: egui clamps the offset only
+    // while painting a visible scroll bar, so with the bar faded out the
+    // content stays shifted off-screen and the pane renders blank.
+    let (offset, stick, match_row, to_bottom) = match scroll_to {
+        Some(ScrollTo::Top) => (Some(0.0), false, None, false),
+        Some(ScrollTo::Bottom) => (None, false, None, true),
+        Some(ScrollTo::Match(row)) => (None, false, Some(row), false),
+        None => (None, follow, None, false),
     };
     // Wrapped lines only scroll vertically; extended lines add a sideways axis.
     let mut area = if wrap {
@@ -80,6 +83,9 @@ pub(super) fn render_body(
             }
         }
         ui.add_space(4.0); // a little slack below the last line, easier to select
+        if to_bottom {
+            ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+        }
     });
 }
 
