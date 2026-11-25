@@ -3,14 +3,15 @@
 
 use crate::model::ServerConfig;
 use std::collections::{BTreeSet, HashMap};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
-/// Whether `port` can be bound on localhost right now. A successful bind (which
-/// is immediately released) means free; `AddrInUse` means something is already
-/// listening. This is a point-in-time check, not a reservation.
+/// Whether nothing is listening on `port` at localhost right now. A connect
+/// probe, not a bind probe: std sets SO_REUSEADDR on unix, so binding
+/// 127.0.0.1 succeeds even while a JVM holds `*:port`. Point-in-time, not a
+/// reservation.
 pub fn is_port_free(port: u16) -> bool {
-    TcpListener::bind(("127.0.0.1", port)).is_ok()
+    !is_listening(port)
 }
 
 /// Whether something accepts connections on `port` at localhost — IPv4 or
@@ -47,6 +48,7 @@ pub fn duplicate_config_ports(servers: &[ServerConfig]) -> BTreeSet<u16> {
 mod tests {
     use super::*;
     use crate::model::Preset;
+    use std::net::TcpListener;
 
     #[test]
     fn bound_port_is_not_free_and_frees_after_drop() {
@@ -55,6 +57,18 @@ mod tests {
         assert!(!is_port_free(port), "listener still holds the port");
         drop(listener);
         assert!(is_port_free(port), "port should be free after release");
+    }
+
+    #[test]
+    fn wildcard_ipv6_listener_is_not_free() {
+        // The JVM and Node listen on `*` (`[::]`); a 127.0.0.1 bind still
+        // succeeds beside it because std sets SO_REUSEADDR on unix.
+        let Ok(listener) = TcpListener::bind("[::]:0") else {
+            eprintln!("skipping: no IPv6");
+            return;
+        };
+        let port = listener.local_addr().unwrap().port();
+        assert!(!is_port_free(port), "wildcard listener holds the port");
     }
 
     fn server_on_port(name: &str, port: Option<u16>) -> ServerConfig {
