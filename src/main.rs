@@ -27,9 +27,9 @@ use process::kill_tree;
 use process::running::{RunningProcess, Status};
 use process::runtime_state::{self, RuntimeEntry};
 use process::shutdown;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use ui::Action;
 use ui::editor::{EditorForm, EditorOutcome};
 use ui::workspaces::Workspaces;
@@ -91,6 +91,12 @@ fn main() -> eframe::Result<()> {
 /// `Drop`, and pressing Stop again during the wait escalates immediately.
 const STOP_GRACE: Duration = Duration::from_secs(10);
 
+/// How long a Restart waits, beyond `STOP_GRACE`, for the old server to release
+/// its port before relaunching anyway. The spawned command can report `Stopped`
+/// while the app it ran is still shutting down in another process group (Gradle
+/// forks its daemon, and the daemon the app, outside Campfire's group).
+const RESTART_PORT_WAIT: Duration = Duration::from_secs(10);
+
 /// Sidebar layout: `egui::Panel::show_switched` cross-fades between the full
 /// card list (`SIDEBAR_DEFAULT_WIDTH`, resizable down to `SIDEBAR_MIN_WIDTH`) and
 /// a `SIDEBAR_RAIL_WIDTH` rail of per-server status dots. Dragging the resize bar
@@ -147,8 +153,10 @@ struct CampfireApp {
     /// Transient toast (e.g. a port conflict that blocked a start): the text
     /// and when it expires. Rendered floating bottom-center, fading in/out.
     toast: Option<Toast>,
-    /// Servers awaiting a restart once their current process has terminated.
-    restart_pending: HashSet<String>,
+    /// Servers awaiting a restart once their current process has terminated
+    /// and their port is free, each with the deadline after which it relaunches
+    /// regardless (and `start_server` reports the port conflict).
+    restart_pending: HashMap<String, Instant>,
     /// Cached per-server CPU/memory usage.
     metrics: metrics::Metrics,
     /// Whether the help modal is open.
@@ -234,7 +242,7 @@ impl CampfireApp {
             pending_delete: None,
             workspaces,
             toast,
-            restart_pending: HashSet::new(),
+            restart_pending: HashMap::new(),
             metrics: metrics::Metrics::new(),
             show_help: false,
             logo: None,
@@ -287,7 +295,8 @@ impl CampfireApp {
                     if let Some(proc) = self.running.get_mut(&id) {
                         proc.stop(STOP_GRACE);
                     }
-                    self.restart_pending.insert(id); // relaunched once terminated
+                    let deadline = Instant::now() + STOP_GRACE + RESTART_PORT_WAIT;
+                    self.restart_pending.insert(id, deadline);
                 } else {
                     self.start_server(&id, ctx);
                 }
@@ -611,17 +620,26 @@ impl eframe::App for CampfireApp {
         }
 
         self.metrics.refresh(&self.running);
-        if self.running.values().any(|p| !p.is_terminal()) {
+        if !self.restart_pending.is_empty() || self.running.values().any(|p| !p.is_terminal()) {
             ui.ctx().request_repaint_after(Duration::from_millis(200));
         }
 
-        // Complete restarts whose old process has terminated (frees the port).
+        // Complete restarts whose old process has terminated and released its port.
         if !self.restart_pending.is_empty() {
+            let now = Instant::now();
             let ready: Vec<String> = self
                 .restart_pending
                 .iter()
-                .filter(|&id| self.running.get(id).is_none_or(|p| p.is_terminal()))
-                .cloned()
+                .filter(|&(id, &deadline)| {
+                    let terminated = self.running.get(id).is_none_or(|p| p.is_terminal());
+                    let port = self
+                        .servers
+                        .iter()
+                        .find(|s| s.id == *id)
+                        .and_then(|s| s.port);
+                    terminated && (now >= deadline || port.is_none_or(port::is_port_free))
+                })
+                .map(|(id, _)| id.clone())
                 .collect();
             let ctx = ui.ctx().clone();
             for id in ready {
