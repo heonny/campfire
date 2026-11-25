@@ -1,4 +1,5 @@
-//! Static help content, shown in a modal: three getting-started steps, a
+//! Static help content, shown in a modal: the build's version and commit,
+//! three getting-started steps, a
 //! shortcut table, a few tips, and where the files live. Returns `true` when
 //! the user clicks Close.
 
@@ -7,7 +8,16 @@ use eframe::egui;
 
 pub fn show(ui: &mut egui::Ui) -> bool {
     ui.set_max_width(560.0);
-    ui.heading("Help");
+    ui.horizontal(|ui| {
+        ui.heading("Help");
+        ui.weak(concat!(
+            "Campfire v",
+            env!("CARGO_PKG_VERSION"),
+            " (",
+            env!("CAMPFIRE_GIT_HASH"),
+            ")"
+        ));
+    });
     ui.add_space(4.0);
 
     modal_scroll(ui).show(ui, |ui| {
