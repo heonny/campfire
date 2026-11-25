@@ -2,7 +2,11 @@
 
 ## Unreleased
 
+## 0.1.1 - 2026-11-25
+
 ### Added
+
+- Show the app version and commit hash in the help dialog.
 
 - Fill the project name and default launch command when selecting a folder.
   - Node: prefer `dev`, then `start`, using the detected npm, pnpm, Yarn, or Bun runner.
@@ -18,6 +22,13 @@
 
 - Ignore commented-out Gradle plugins and plugin declarations with `apply false`
   when deriving task suggestions.
+- Detect ports held by IPv6 or wildcard listeners, such as the JVM's `*:8080`.
+  Previously a start could pass the port check while the old server still held
+  the port, and the server was reported ready immediately.
+- Restart waits for the old server to release its port before relaunching,
+  instead of failing when a build tool such as Gradle is still shutting the
+  app down.
+- Keep the log visible after jumping to the bottom; the pane could render blank.
 
 ### Scope
 

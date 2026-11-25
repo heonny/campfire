@@ -1,9 +1,12 @@
-Campfire's first release: a native desktop app for managing local development servers.
+Campfire 0.1.1 fills in launch commands for new projects and fixes port handling around restarts.
 
-- Start, stop, and restart servers with per-project commands, environment variables, and ports.
-- Watch live logs in tabbed workspaces with up to four panes, search, and ANSI colors.
-- Reorder projects by dragging, monitor CPU and memory, and receive ready/crash notifications.
-- Glass surfaces for the sidebar, dialogs, and notifications.
+- Selecting a project folder fills the name and default command for Node, Gradle, Cargo, and Go projects.
+- A server whose port is still held by a previous run is no longer reported ready at once. The port check now sees IPv6 and wildcard listeners such as the JVM's.
+- Restart waits for the old server to release its port, so Gradle apps restart cleanly.
+- The log no longer goes blank after jumping to the bottom.
+- The help dialog shows the version and commit hash.
+
+See CHANGELOG.md for the full list.
 
 ### Downloads
 
