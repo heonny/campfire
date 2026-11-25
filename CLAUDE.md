@@ -19,6 +19,8 @@ cargo fmt                     # format
 ./scripts/bundle-macos.sh     # macOS: build Campfire.app (+ generated .icns) -> target/release/bundle
 ```
 
+Releasing: bump `Cargo.toml` (and `Cargo.lock`), update `CHANGELOG.md` and `docs/release-notes.md`, commit, **then** push the `v<version>` tag. `.github/workflows/release.yml` builds macOS/Windows zips and publishes with the notes file from the tagged commit.
+
 Rust edition 2024; `egui`/`eframe` are pinned at 0.35.
 
 ## Architecture
@@ -31,6 +33,7 @@ The entry point is `eframe::App::ui(&mut Ui, ..)` — egui 0.35, **not** the old
 ### Process lifecycle — `src/process/`
 - `command.rs` builds the real invocation: it wraps the user's command string in a login shell (`$SHELL -lc` on unix, `cmd /C` on windows; a per-server `shell` override exists for version managers like nvm) and layers the environment — explicit env vars, then a `.env` file, then injected `PORT` **and** `SERVER_PORT` (Spring Boot reads `SERVER_PORT`, Node reads `PORT`, so both are set).
 - `running.rs` — `RunningProcess` spawns through `command-group` so the whole process **group** can be tree-killed. stdout/stderr are read on threads into an mpsc channel and drained non-blockingly by `poll()` each frame. Stop is graceful: SIGINT (Ctrl+C — build tools like Gradle relay it to their child and keep its shutdown logs flowing, unlike SIGTERM) → 10 s grace → SIGKILL on the group; pressing Stop again during the grace escalates to SIGKILL at once. `Drop` force-kills the group, so closing the app also stops its servers — which is why the release profile keeps unwinding (**no `panic = "abort"`**): abort would skip `Drop` and orphan child processes. A `RunningProcess` is either **Owned** (spawned here, with live log pipes) or **Adopted** (recovered from a previous session by PID — stop/restart work, but there are no live logs); the public API is identical, so the UI is agnostic.
+- Restart (`main.rs`, `restart_pending`) relaunches only once the old process is terminal **and** its port is free, up to `STOP_GRACE + RESTART_PORT_WAIT`. The spawned command can exit while the app it ran still holds the port: Gradle forks its daemon, and the daemon the app, outside Campfire's process group (even with `--no-daemon`, which forks a single-use daemon).
 - Status: a server with a port starts as `Starting` and becomes `Running` when `poll()` sees the port taken (a throttled connect probe on IPv4 and IPv6 localhost); no port means `Running` at once. `stop()` sets `Stopping` for the grace window. Neither is terminal.
 - `instance_lock.rs` — `campfire.lock` (PID + start time) in the data dir; a second launch that finds the first alive shows a dialog and exits. Two instances would otherwise share `running.json`, and the second would adopt the first's servers and kill them on close.
 - `log_buffer.rs` — a byte-capped 5 MiB ring buffer; `total_pushed()` is monotonic so the log view can count unseen lines.
@@ -52,14 +55,15 @@ The entry point is `eframe::App::ui(&mut Ui, ..)` — egui 0.35, **not** the old
 - The sidebar panel's resize indicator is restyled to a slim accent line via `with_accent_resize_indicator` (egui draws it with the interactive `fg_stroke`, near-black by default); the helper saves/restores the stroke because `fg_stroke` doubles as other widgets' hover text color, so it must not be changed globally.
 - Buttons are intentionally **chromeless**: interactive `bg_stroke` is zeroed globally (no border), and `icon_button` sets `frame_when_inactive(false)` so an icon shows no fill at rest and only the hover fill on interaction. Do **not** re-add a per-button stroke — egui budgets the border width inside a button's inner margin, so changing it between rest and hover makes the layout jitter. Text inputs get their border from a wrapping frame (`ui::text_input`) because the global widget border is off.
 - Rows that pair a variable-width name with fixed trailing items (sidebar card, pane header) lay the trailing items out first (right-to-left) and give the name a `Label::truncate()` in the remaining space, so a narrow width elides the name instead of overlapping.
-- Sidebar project cards are **drag-to-reorder** (order persists via the normal config save, so the `servers` list order IS the on-disk order). Detect the drag with `response.dragged()` + `Response::dnd_set_drag_payload`, **not** `is_being_dragged(Id::new(..))`: `Frame::Prepared::allocate_space().interact()` reuses an auto-generated id, so a hand-built id never matches, the payload is silently never set, and the drag compiles clean but does nothing at runtime. `Sense::click_and_drag()` keeps click-to-select working alongside the drag.
+- Sidebar project cards are **drag-to-reorder** (order persists via the normal config save, so the `servers` list order IS the on-disk order). Detect the drag with the card's own `response.dragged()` / `drag_stopped()` and record it in `ui::SidebarDrag` (read by the reorder marker and by the dock's drop preview in `workspaces/drop.rs`), **not** `is_being_dragged(Id::new(..))`: `Frame::Prepared::allocate_space().interact()` reuses an auto-generated id, so a hand-built id never matches, and the drag compiles clean but does nothing at runtime. `Sense::click_and_drag()` keeps click-to-select working alongside the drag.
 - `ansi.rs` turns ANSI SGR sequences into a colored egui `LayoutJob` and highlights search matches; `strip()` returns plain text for filtering.
 - Icons are Lucide SVGs (ISC-licensed, in `assets/icons/`) rasterized at runtime by `egui_extras` (svg feature); `egui_extras::install_image_loaders` runs once at startup.
 
 ### Other subsystems
 - `model.rs` / `store.rs` — config is TOML written to the OS app-config directory (`com.heonny.campfire/servers.toml`) with a schema version and atomic temp-file-plus-rename saves.
 - `metrics.rs` — per-server CPU/memory via `sysinfo`, summed over the whole process subtree (the tracked PID is the shell, not the app itself).
-- `port.rs` — detects both ports already in use and ports assigned to two servers in the config.
+- `port.rs` — detects both ports already in use and ports assigned to two servers in the config. "In use" is a **connect** probe on IPv4 and IPv6 localhost, not a bind probe: std sets `SO_REUSEADDR` on unix, so a 127.0.0.1 bind succeeds beside a JVM's `*:port`.
+- `build.rs` — embeds the short commit hash as `CAMPFIRE_GIT_HASH` (shown in the help modal next to the version; `unknown` outside a git checkout).
 - `system.rs` — OS hand-offs (open a URL / reveal a folder via `open` / `cmd /C start` / `xdg-open`). Called directly from render code: they touch no app state, so they don't go through `Action`.
 
 ## Conventions
@@ -67,3 +71,5 @@ The entry point is `eframe::App::ui(&mut Ui, ..)` — egui 0.35, **not** the old
 - **Public open-source repo**: never commit absolute/home paths, personal data, or other private info in code, comments, docs, or commit messages.
 - Cross-platform code branches with `#[cfg(unix)]` / `#[cfg(windows)]`; both macOS and Windows are targets.
 - Commit messages use conventional prefixes (`feat:` / `fix:` / `refactor:` / `chore:` / `docs:`), are imperative, and carry no emoji or AI-generation markers.
+
+@AGENTS.md
