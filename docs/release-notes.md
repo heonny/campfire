@@ -22,4 +22,4 @@ The release workflow runs formatting checks, Clippy, and tests on both platforms
 
 ### Maintainers
 
-Update Cargo.toml, Cargo.lock, and these notes before the next release. Push the matching `v<version>` tag to build and publish. A manual workflow run builds and uploads artifacts without publishing a release.
+Before the next release, update Cargo.toml, Cargo.lock, CHANGELOG.md, and these notes, and commit them. Then push the matching `v<version>` tag to build and publish. The workflow reads these notes from the tagged commit, so notes committed after the tag are not used. A manual workflow run builds and uploads artifacts without publishing a release.

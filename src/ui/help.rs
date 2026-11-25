@@ -34,7 +34,8 @@ pub fn show(ui: &mut egui::Ui) -> bool {
                  shows its log in the focused pane instead.",
                 "Play / Stop, Restart, Edit, and Close icons live in the pane header. Project actions are also in the card's \
                  right-click menu. Stop waits up to 10 s for a graceful shutdown; \
-                 press it again to force-quit.",
+                 press it again to force-quit. Restart waits for the old server to \
+                 release its port before launching again.",
             ],
         );
 

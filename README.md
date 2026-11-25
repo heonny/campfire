@@ -27,7 +27,8 @@ install.
   `.env` file, and an optional shell override
 - **Lifecycle** — start / stop / restart with whole-process-tree shutdown
   (graceful `SIGINT`, a grace period, then `SIGKILL`), so nothing is orphaned;
-  press Stop again to force-quit immediately
+  press Stop again to force-quit immediately. Restart waits for the old server
+  to release its port before launching the new one
 - **Reorder** — drag project cards up or down to change their order; it's saved
 - **Workspaces** — drag a card into the log area to open its log; up to four
   logs in resizable panes, bundled into tabs. Open log arranges three or four
@@ -37,8 +38,9 @@ install.
 - **Ready / crash notices** — a server shows *starting* until its port is
   listening, then a banner says it's ready; a crash reports the exit code
 - **Open in browser** — click a project's `:port` to open `localhost:port`
-- **Port awareness** — warns when a port is already in use or assigned to two
-  servers; injects both `PORT` and `SERVER_PORT`
+- **Port awareness** — warns when a port is already in use (including IPv6 and
+  wildcard listeners such as the JVM's) or assigned to two servers; injects both
+  `PORT` and `SERVER_PORT`
 - **Resource usage** — per-server CPU and memory shown live on each project
   card, summed over the whole process subtree
 - **Cross-platform** — macOS and Windows
@@ -72,7 +74,7 @@ cargo build --release
 
 ## Usage
 
-1. Click **+ Add** and choose the **working directory** (Browse…).
+1. Click **+** (Add project) and choose the **working directory** (Browse…).
 2. Review the detected name and command. Choose a script / binary when there
    are several targets, or enter a command / pick a preset manually.
 3. Optionally set a port, environment variables, or a `.env` file.
@@ -98,6 +100,8 @@ The in-app **Help** button has the rest. A few notes:
   sources `~/.zshrc`.
 - **Config** — servers are saved under your OS app-config directory
   (`com.heonny.campfire/servers.toml`).
+- **Version** — the Help dialog shows the app version and the commit it was
+  built from.
 
 ## Uninstall
 
